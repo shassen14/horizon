@@ -7,9 +7,11 @@ apscheduler      # For the job scheduler
 slowapi          # For rate limiting
 
 # --- Data & Quant ---
+pandas_market_calendars
+polars
 polars[pyarrow]  # High-performance dataframes
 pyarrow          # For efficient data serialization
-alpaca-trade-api
+alpaca-py
 TA-Lib           # If on a platform that supports the binary
 
 # --- Database ---
@@ -19,5 +21,6 @@ asyncpg          # Driver for PostgreSQL
 psycopg2-binary  # Required by some tools and Alembic
 
 # --- Utilities ---
+pydantic-settings
 python-dotenv    # For loading .env files
 ruff             # Linter and formatter
