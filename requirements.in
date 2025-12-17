@@ -1,0 +1,23 @@
+# requirements.in
+
+# --- Core Frameworks ---
+fastapi
+uvicorn[standard] # For the API server
+apscheduler      # For the job scheduler
+slowapi          # For rate limiting
+
+# --- Data & Quant ---
+polars[pyarrow]  # High-performance dataframes
+pyarrow          # For efficient data serialization
+alpaca-trade-api
+TA-Lib           # If on a platform that supports the binary
+
+# --- Database ---
+sqlalchemy[asyncio]
+alembic
+asyncpg          # Driver for PostgreSQL
+psycopg2-binary  # Required by some tools and Alembic
+
+# --- Utilities ---
+python-dotenv    # For loading .env files
+ruff             # Linter and formatter
