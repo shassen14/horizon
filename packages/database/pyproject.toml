@@ -1,0 +1,9 @@
+# packages/database/pyproject.toml
+
+[project]
+name = "database"
+version = "0.1.0"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
