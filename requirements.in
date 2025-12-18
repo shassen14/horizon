@@ -21,6 +21,7 @@ asyncpg          # Driver for PostgreSQL
 psycopg2-binary  # Required by some tools and Alembic
 
 # --- Utilities ---
+loguru
 pydantic-settings
 python-dotenv    # For loading .env files
 ruff             # Linter and formatter

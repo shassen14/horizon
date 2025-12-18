@@ -1,40 +1,51 @@
 # apps/ingest-worker/main.py
 
 import asyncio
-import sys
 import argparse
+from packages.quant_lib.logging import LogManager
 from sources.alpaca import AlpacaSource
-
-# Import the logic from jobs.py
-from jobs import run_metadata_sync, run_daily_ingestion, run_intraday_ingestion
+from engine import IngestionEngine
 
 
 async def main():
     parser = argparse.ArgumentParser(description="Horizon Ingestion Worker")
     parser.add_argument(
-        "--mode",
-        choices=["all", "metadata", "daily", "intraday"],
-        default="all",
-        help="Which ingestion phase to run.",
+        "--mode", choices=["all", "metadata", "daily", "intraday"], default="all"
     )
     args = parser.parse_args()
 
-    source = AlpacaSource()
+    # 1. Dependency: Logging
+    # We initialize the LogManager once.
+    log_manager = LogManager(service_name="ingest-worker")
+    root_logger = log_manager.get_logger("main")
 
-    # 1. Metadata Phase (Always returns active assets)
-    # Even if mode is 'daily', we need the asset map.
-    # The 'run_metadata_sync' has built-in caching, so it's cheap to call.
-    active_assets = await run_metadata_sync(source)
+    root_logger.info(f"Initializing Ingest Worker in mode: {args.mode}")
 
-    if args.mode in ["all", "metadata"]:
-        # We already ran it above to get the map, so we are done with this phase.
-        pass
+    try:
+        # 2. Dependency: Data Source
+        # We pass the logger to the source too, so it can log its own connection details
+        source_logger = log_manager.get_logger("alpaca-source")
+        source = AlpacaSource()  # You could update AlpacaSource to accept source_logger
 
-    if args.mode in ["all", "daily"]:
-        await run_daily_ingestion(source, active_assets)
+        # 3. Dependency Injection: The Engine
+        # We inject the Source, Settings, and a specific Logger into the Engine
+        engine_logger = log_manager.get_logger("ingestion-engine")
 
-    if args.mode in ["all", "intraday"]:
-        await run_intraday_ingestion(source, active_assets)
+        engine = IngestionEngine(source=source, logger=engine_logger)
+
+        # 4. Execution
+        # The engine is stateful. We must run metadata first to populate the asset map.
+        await engine.run_metadata_sync()
+
+        if args.mode in ["all", "daily"]:
+            await engine.run_daily_ingestion()
+
+        if args.mode in ["all", "intraday"]:
+            await engine.run_intraday_ingestion()
+
+    except Exception as e:
+        root_logger.exception("CRITICAL FAILURE in Ingest Worker Main Loop")
+        raise e
 
 
 if __name__ == "__main__":

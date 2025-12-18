@@ -2,7 +2,7 @@
 
 import polars as pl
 from datetime import datetime
-from typing import List, Union
+from typing import Any, Dict, List, Union
 from alpaca.common.types import RawData
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
@@ -14,6 +14,7 @@ from alpaca.trading.requests import GetAssetsRequest
 from alpaca.trading.enums import AssetStatus, AssetClass
 
 from packages.quant_lib.config import settings
+from packages.quant_lib.interfaces import DataSource
 
 
 # A mapping to rename Alpaca's columns to ours
@@ -29,19 +30,19 @@ ALPACA_COLUMN_MAP = {
 }
 
 
-class AlpacaSource:
+class AlpacaSource(DataSource):
     def __init__(self):
-        self.api_key = settings.ALPACA_API_KEY
-        self.secret_key = settings.ALPACA_SECRET_KEY
+        self.api_key = settings.alpaca.api_key
+        self.secret_key = settings.alpaca.secret_key
         if not self.api_key or not self.secret_key:
             raise ValueError("Alpaca API key and secret key must be set in .env file.")
 
         self.client = StockHistoricalDataClient(self.api_key, self.secret_key)
         self.trading_client = TradingClient(
-            self.api_key, self.secret_key, paper=settings.ALPACA_PAPER_TRADING
+            self.api_key, self.secret_key, paper=settings.alpaca.paper_trading
         )
 
-    def get_all_tickers(self) -> List[dict]:
+    def get_all_tickers(self) -> List[Dict[str, Any]]:
         """Fetches all active, tradable US Equity assets from Alpaca."""
         request = GetAssetsRequest(
             status=AssetStatus.ACTIVE, asset_class=AssetClass.US_EQUITY
