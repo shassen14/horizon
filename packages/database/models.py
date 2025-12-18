@@ -4,6 +4,7 @@ from typing import Type
 from sqlalchemy import (
     Column,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Float,
     Boolean,
@@ -91,8 +92,8 @@ class FeaturesDaily(Base):
     __tablename__ = "features_daily"
 
     # --- Primary Keys ---
-    time = Column(DateTime(timezone=True), primary_key=True)
-    asset_id = Column(Integer, ForeignKey("asset_metadata.id"), primary_key=True)
+    time = Column(DateTime(timezone=True), nullable=False)
+    asset_id = Column(Integer, ForeignKey("asset_metadata.id"), nullable=False)
 
     # --- Family: Returns / Momentum ---
     # These are log returns, which are better for ML than percent change
@@ -132,7 +133,7 @@ class FeaturesDaily(Base):
     # rs_spy_normalized = Column(Float)
 
     __table_args__ = (
-        UniqueConstraint("time", "asset_id", name="_daily_features_time_asset_uc"),
+        PrimaryKeyConstraint("time", "asset_id", name="pk_features_daily"),
     )
 
 
