@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 # Absolute, clean imports
 from packages.quant_lib.logging import LogManager
 from apps.api_server.core.limiter import limiter
-from apps.api_server.routers import public as public_router
+from apps.api_server.routers import market as public_router
 from apps.api_server.routers import assets as assets_router
 
 
@@ -23,8 +23,10 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Include Routers with a global prefix
-app.include_router(public_router.router, prefix="/api/v1", tags=["Public Market Data"])
-app.include_router(assets_router.router, prefix="/api/v1", tags=["Public Asset Data"])
+api_prefix = "/api/v1"
+
+app.include_router(public_router.router, prefix=api_prefix)
+app.include_router(assets_router.router, prefix=api_prefix)
 
 
 @app.get("/", tags=["Health Check"], operation_id="health_check")

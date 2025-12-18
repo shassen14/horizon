@@ -1,4 +1,4 @@
-# apps/api_server/routers/public.py
+# apps/api_server/routers/market.py
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -18,7 +18,7 @@ from apps.api_server.schemas.history import (
 )
 from packages.database.models import Asset, MarketDataDaily, FeaturesDaily
 
-router = APIRouter(prefix="/public", tags=["Public Market Data"])
+router = APIRouter(prefix="/public/market", tags=["Market Data"])
 
 
 @router.get(
