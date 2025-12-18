@@ -17,8 +17,6 @@ from apps.api_server.schemas.history import (
     VolumeFeatures,
 )
 from packages.database.models import Asset, MarketDataDaily, FeaturesDaily
-from fastapi.responses import JSONResponse
-from fastapi.encoders import jsonable_encoder
 
 router = APIRouter(prefix="/public", tags=["Public Market Data"])
 
