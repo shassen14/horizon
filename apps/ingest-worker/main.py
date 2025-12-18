@@ -2,6 +2,9 @@
 
 import asyncio
 import argparse
+
+from aiolimiter import AsyncLimiter
+from packages.quant_lib.config import settings
 from packages.quant_lib.logging import LogManager
 from sources.alpaca import AlpacaSource
 from engine import IngestionEngine
@@ -27,11 +30,14 @@ async def main():
         source_logger = log_manager.get_logger("alpaca-source")
         source = AlpacaSource()  # You could update AlpacaSource to accept source_logger
 
+        # Create the limiter from our config settings.
+        limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
+
         # 3. Dependency Injection: The Engine
         # We inject the Source, Settings, and a specific Logger into the Engine
         engine_logger = log_manager.get_logger("ingestion-engine")
 
-        engine = IngestionEngine(source=source, logger=engine_logger)
+        engine = IngestionEngine(source=source, logger=engine_logger, limiter=limiter)
 
         # 4. Execution
         # The engine is stateful. We must run metadata first to populate the asset map.

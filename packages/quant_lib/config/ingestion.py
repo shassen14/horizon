@@ -27,6 +27,9 @@ class IngestionConfig(EnvConfig):
     market_session_minutes: int = 390
     sip_delay_minutes: int = 15
 
+    # Alpaca Free Tier is 200 requests per minute.
+    api_rate_limit_per_minute: int = 200
+
     model_config = SettingsConfigDict(
         env_prefix="INGESTION_",  # Pydantic will look for INGESTION_MAX_DATAPOINTS, etc.
         case_sensitive=False,

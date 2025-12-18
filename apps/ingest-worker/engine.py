@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func, update
 from sqlalchemy.dialects.postgresql import insert
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from aiolimiter import AsyncLimiter
 
 # We import types for type hinting only
 from packages.quant_lib.config import settings
@@ -29,9 +30,10 @@ from packages.quant_lib.interfaces import DataSource
 
 
 class IngestionEngine:
-    def __init__(self, source: DataSource, logger):
+    def __init__(self, source: DataSource, logger, limiter: AsyncLimiter):
         self.source = source
         self.logger = logger
+        self.limiter = limiter
 
         # Internal state
         self.active_assets_map: dict[int, str] = {}
@@ -311,7 +313,8 @@ class IngestionEngine:
                 batch_symbols = [self.active_assets_map[bid] for bid in batch_ids]
 
                 try:
-                    df = self.source.get_ohlcv_bars(batch_symbols, start_dt, end_dt)
+                    async with self.limiter:
+                        df = self.source.get_ohlcv_bars(batch_symbols, start_dt, end_dt)
 
                     if not df.is_empty():
                         # Use the helper to write to DB
@@ -492,12 +495,13 @@ class IngestionEngine:
                 )
 
                 try:
-                    df = self.source.get_ohlcv_bars(
-                        symbols=batch_symbols,
-                        start_dt=req_start,
-                        end_dt=req_end,
-                        timeframe=timeframe,
-                    )
+                    async with self.limiter:
+                        df = self.source.get_ohlcv_bars(
+                            symbols=batch_symbols,
+                            start_dt=req_start,
+                            end_dt=req_end,
+                            timeframe=timeframe,
+                        )
 
                     if not df.is_empty():
                         count = await self._write_to_db(df, ModelClass)
@@ -505,9 +509,6 @@ class IngestionEngine:
 
                 except Exception as e:
                     self.logger.error(f"Error fetching intraday chunk: {e}")
-
-                # Rate limit safety between chunks
-                await asyncio.sleep(0.5)
 
     async def _write_to_db(self, df: pl.DataFrame, model_class) -> int:
         """
