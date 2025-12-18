@@ -30,6 +30,9 @@ class IngestionConfig(EnvConfig):
     # Alpaca Free Tier is 200 requests per minute.
     api_rate_limit_per_minute: int = 200
 
+    # Sleep time between DB writes to let the disk breathe
+    db_write_cooldown_seconds: float = 0.5
+
     model_config = SettingsConfigDict(
         env_prefix="INGESTION_",  # Pydantic will look for INGESTION_MAX_DATAPOINTS, etc.
         case_sensitive=False,

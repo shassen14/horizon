@@ -475,17 +475,18 @@ class IngestionEngine:
             for j in range(0, len(schedule_dates), chunk_trading_days):
                 chunk_dates = schedule_dates[j : j + chunk_trading_days]
 
-                # Start: Open of first day
-                chunk_start_date = chunk_dates[0]
-                # End: Close of last day + 1 day buffer
-                chunk_end_date = chunk_dates[-1] + timedelta(days=1)
+                # 1. Get Naive/Raw dates from schedule
+                raw_chunk_start = chunk_dates[0]
+                raw_chunk_end = chunk_dates[-1] + timedelta(days=1)
 
-                # Ensure UTC conversion before comparison/request
-                req_start_raw = batch_needed_start if j == 0 else chunk_start_date
-                req_start = ensure_utc_timestamp(req_start_raw)
+                # 2. Convert to UTC-Aware Datetimes
+                chunk_start_utc = ensure_utc_timestamp(raw_chunk_start)
+                chunk_end_utc = ensure_utc_timestamp(raw_chunk_end)
 
-                req_end_raw = min(chunk_end_date, end_dt)  # Handle "Now" boundary
-                req_end = ensure_utc_timestamp(req_end_raw)
+                # 3. Calculate Request Boundaries
+                # Now both variables in min() are UTC-aware, so no error.
+                req_start = batch_needed_start if j == 0 else chunk_start_utc
+                req_end = min(chunk_end_utc, end_dt)
 
                 if req_start >= req_end:
                     continue
@@ -575,6 +576,8 @@ class IngestionEngine:
                     await session.execute(stmt)
                     await session.commit()  # Commit per chunk to free memory
                     total_written += len(chunk)
+                    await asyncio.sleep(settings.ingestion.db_write_cooldown_seconds)
+
                 except Exception as e:
                     self.logger.error(f"Error writing chunk {start_idx} to DB: {e}")
                     await session.rollback()
