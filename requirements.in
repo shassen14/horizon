@@ -7,9 +7,11 @@ apscheduler      # For the job scheduler
 slowapi          # For rate limiting
 
 # --- Data & Quant ---
+aiolimiter
 pandas_market_calendars
 polars
 polars[pyarrow]  # High-performance dataframes
+connectorx       # High Speed database connectors for polars
 pyarrow          # For efficient data serialization
 alpaca-py
 TA-Lib           # If on a platform that supports the binary
