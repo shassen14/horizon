@@ -1,9 +1,10 @@
 from typing import List, Optional
 from pydantic import computed_field, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
+from .base import EnvConfig
 
 
-class ScreenerConfig(BaseSettings):
+class ScreenerConfig(EnvConfig):
     asset_classes: str = "us_equity"
     exchanges_allowed: str = "NASDAQ,NYSE,ARCA,BATS"
     exchanges_blocked: str = "OTC"

@@ -21,17 +21,10 @@ class Settings(BaseSettings):
     ingestion: IngestionConfig = IngestionConfig()
     screener: ScreenerConfig = ScreenerConfig()
 
-    model_config = SettingsConfigDict(
-        env_file=PROJECT_ROOT / ".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-        extra="ignore",
-    )
-
 
 # Singleton Instance
 try:
     settings = Settings()
 except Exception as e:
-    print("CRITICAL: Config load failed.")
+    print(f"CRITICAL: Config load failed. Details: {e}")
     raise e

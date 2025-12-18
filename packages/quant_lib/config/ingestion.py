@@ -1,9 +1,9 @@
 from typing import Literal
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
+from .base import EnvConfig
 
 
-class IngestionConfig(BaseSettings):
+class IngestionConfig(EnvConfig):
     # API Limits
     max_datapoints: int = 10_000
     max_symbols: int = 200

@@ -25,12 +25,11 @@ from packages.quant_lib.date_utils import (
     get_trading_days_in_range,
 )
 
-from loguru import Logger
 from packages.quant_lib.interfaces import DataSource
 
 
 class IngestionEngine:
-    def __init__(self, source: DataSource, logger: Logger):
+    def __init__(self, source: DataSource, logger):
         self.source = source
         self.logger = logger
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from packages.quant_lib.config import settings
 
 # Create an async engine
-engine: AsyncEngine = create_async_engine(settings.DATABASE_URL, echo=False)
+engine: AsyncEngine = create_async_engine(settings.db.URL, echo=False)
 
 # Create a session maker
 AsyncSessionFactory = sessionmaker(

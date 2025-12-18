@@ -1,8 +1,8 @@
 from pydantic import Field, PostgresDsn, computed_field
-from pydantic_settings import BaseSettings
+from .base import EnvConfig
 
 
-class DatabaseConfig(BaseSettings):
+class DatabaseConfig(EnvConfig):
     user: str = Field(validation_alias="POSTGRES_USER", default="user")
     password: str = Field(validation_alias="POSTGRES_PASSWORD", default="password")
     host: str = Field(validation_alias="POSTGRES_HOST", default="localhost")
