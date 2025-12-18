@@ -87,4 +87,53 @@ def get_model_for_timeframe(unit: str, value: int) -> Type[Base]:  # type: ignor
     return mapping[key]
 
 
+class FeaturesDaily(Base):
+    __tablename__ = "features_daily"
+
+    # --- Primary Keys ---
+    time = Column(DateTime(timezone=True), primary_key=True)
+    asset_id = Column(Integer, ForeignKey("asset_metadata.id"), primary_key=True)
+
+    # --- Family: Returns / Momentum ---
+    # These are log returns, which are better for ML than percent change
+    return_1d = Column(Float)
+    return_5d = Column(Float)
+    return_21d = Column(Float)  # Approx 1 month
+    return_63d = Column(Float)  # Approx 3 months
+    return_252d = Column(Float)  # Approx 1 year
+
+    # --- Family: Trend (Moving Averages) ---
+    sma_20 = Column(Float)
+    sma_50 = Column(Float)
+    sma_200 = Column(Float)
+    ema_12 = Column(Float)
+    ema_20 = Column(Float)
+    ema_26 = Column(Float)
+    ema_50 = Column(Float)
+
+    # --- Family: Oscillators (Momentum Speed) ---
+    rsi_14 = Column(Float)
+
+    # MACD (Moving Average Convergence Divergence)
+    macd = Column(Float)
+    macd_signal = Column(Float)
+    macd_hist = Column(Float)
+
+    # --- Family: Volatility ---
+    atr_14 = Column(Float)  # Average True Range (absolute value)
+    atr_14_pct = Column(Float)  # ATR as a percentage of price
+
+    # --- Family: Volume & Money Flow ---
+    volume_adv_20 = Column(Float)  # 20-day Average Daily Volume
+    relative_volume = Column(Float)  # Today's Volume / ADV_20
+    # You can add more here later, like OBV (On-Balance Volume)
+
+    # --- Family: Relative Performance (vs Benchmark) ---
+    # rs_spy_normalized = Column(Float)
+
+    __table_args__ = (
+        UniqueConstraint("time", "asset_id", name="_daily_features_time_asset_uc"),
+    )
+
+
 # TODO: Add Feature and Prediction tables here later
