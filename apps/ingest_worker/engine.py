@@ -6,7 +6,7 @@ import math
 import pandas as pd
 import polars as pl
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, text, update
 from sqlalchemy.dialects.postgresql import insert
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from aiolimiter import AsyncLimiter
@@ -409,7 +409,10 @@ class IngestionEngine:
         # 7. Batching Strategy (Symbol Batching)
         # For Intraday, we fix the Number of Symbols (to keep URL short) and vary the Time Range.
         SYMBOL_BATCH_SIZE = 50
-        asset_ids = list(self.active_assets_map.keys())
+
+        # We will accumulate this many API responses before writing to DB
+        WRITE_BUFFER_LIMIT = 20  # 20 * 10k rows = 200k rows per write. Easy for Pi RAM.
+        asset_ids = sorted(list(self.active_assets_map.keys()))
 
         for i in range(0, len(asset_ids), SYMBOL_BATCH_SIZE):
             batch_ids = asset_ids[i : i + SYMBOL_BATCH_SIZE]
@@ -471,6 +474,9 @@ class IngestionEngine:
 
             schedule_dates = relevant_schedule.index.to_list()
 
+            # --- BUFFERING LOGIC START ---
+            data_buffer = []
+
             # Iterate through the schedule in chunks of 'chunk_trading_days'
             for j in range(0, len(schedule_dates), chunk_trading_days):
                 chunk_dates = schedule_dates[j : j + chunk_trading_days]
@@ -505,37 +511,38 @@ class IngestionEngine:
                         )
 
                     if not df.is_empty():
-                        count = await self._write_to_db(df, ModelClass)
-                        self.logger.info(f"     -> Wrote {count} rows.")
+                        data_buffer.append(df)
 
+                    # Check Buffer Size
+                    if len(data_buffer) >= WRITE_BUFFER_LIMIT:
+                        await self._flush_buffer(data_buffer, ModelClass)
+                        data_buffer = []  # Clear buffer
+
+                    # if not df.is_empty():
+                    #     count = await self._write_to_db(df, ModelClass)
+                    #     self.logger.info(f"     -> Wrote {count} rows.")
                 except Exception as e:
                     self.logger.error(f"Error fetching intraday chunk: {e}")
 
+            # End of Batch: Flush remaining data
+            if data_buffer:
+                await self._flush_buffer(data_buffer, ModelClass)
+
     async def _write_to_db(self, df: pl.DataFrame, model_class) -> int:
         """
-        Helper to write OHLCV dataframes to the database.
-        Handles: Joining Asset IDs, Selecting Columns, and Chunked Inserts.
+        High-Performance Write using PostgreSQL COPY protocol via a Temp Table.
         """
         if df.is_empty():
             return 0
 
         # 1. Map Symbol string back to Asset ID integer
-        # self.active_assets_map is {id: symbol}, but we need to join on 'symbol'.
-        # Constructing a small Polars DataFrame is the fastest way to map them.
         asset_ids = list(self.active_assets_map.keys())
         symbols = list(self.active_assets_map.values())
-
         map_df = pl.DataFrame({"symbol": symbols, "asset_id": asset_ids})
 
-        # Perform a left join to attach 'asset_id' to the data
         df = df.join(map_df, on="symbol", how="left")
 
-        # Safety: Drop rows where asset_id might be null (if Alpaca returned a symbol we don't track)
-        df = df.drop_nulls(subset=["asset_id"])
-
-        # 2. Select and Clean Columns
-        # We only want columns that exist in our database model schema.
-        # This prevents errors if Alpaca adds extra columns in the future.
+        # 2. Select columns
         target_cols = [
             "time",
             "asset_id",
@@ -547,43 +554,81 @@ class IngestionEngine:
             "vwap",
             "trade_count",
         ]
+        valid_cols = [c for c in target_cols if c in df.columns]
 
-        # Select only valid columns that are present in the DF
-        available_cols = [c for c in target_cols if c in df.columns]
+        df = df.select(valid_cols)
 
-        # Convert to list of dictionaries for SQLAlchemy
-        records = df.select(available_cols).to_dicts()
+        # Convert to List of Tuples (Required for asyncpg COPY)
+        records = list(df.iter_rows())
 
         if not records:
             return 0
 
-        total_written = 0
-        chunk_size = settings.ingestion.db_chunk_size
+        total_rows = len(records)
+        table_name = model_class.__tablename__
 
-        # 3. Chunked Write Loop
-        # This loop prevents "PostgreSQL Parameter Limit" errors.
         async with get_db_session() as session:
-            for start_idx in range(0, len(records), chunk_size):
-                chunk = records[start_idx : start_idx + chunk_size]
+            # --- THE FIX STARTS HERE ---
+            # 1. Get the SQLAlchemy AsyncConnection
+            conn = await session.connection()
 
-                # Construct Insert Statement
-                stmt = insert(model_class).values(chunk)
+            # 2. Await the method to get the DBAPI proxy
+            dbapi_conn = await conn.get_raw_connection()
 
-                # Handle Duplicates: Ignore row if (time, asset_id) collision occurs
-                stmt = stmt.on_conflict_do_nothing(index_elements=["time", "asset_id"])
+            # 3. Access the actual asyncpg driver connection
+            asyncpg_conn = dbapi_conn.driver_connection
+            # --- THE FIX ENDS HERE ---
 
-                try:
-                    await session.execute(stmt)
-                    await session.commit()  # Commit per chunk to free memory
-                    total_written += len(chunk)
-                    await asyncio.sleep(settings.ingestion.db_write_cooldown_seconds)
+            # A. Create a Temporary Staging Table
+            temp_table = f"temp_{table_name}_ingest"
 
-                except Exception as e:
-                    self.logger.error(f"Error writing chunk {start_idx} to DB: {e}")
-                    await session.rollback()
-                    # We continue to the next chunk; don't crash the whole worker for one bad batch
+            await session.execute(
+                text(
+                    f"""
+                CREATE TEMP TABLE IF NOT EXISTS {temp_table} 
+                (LIKE "{table_name}" INCLUDING DEFAULTS)
+                ON COMMIT DROP;
+            """
+                )
+            )
 
-        return total_written
+            # B. COPY data into the Temp Table (using the raw driver)
+            try:
+                await asyncpg_conn.copy_records_to_table(
+                    temp_table, records=records, columns=valid_cols
+                )
+            except Exception as e:
+                self.logger.error(f"COPY failed: {e}")
+                raise e
+
+            # C. Move from Temp to Real Table
+            columns_str = ", ".join([f'"{c}"' for c in valid_cols])
+
+            insert_query = f"""
+                INSERT INTO "{table_name}" ({columns_str})
+                SELECT {columns_str} FROM {temp_table}
+                ON CONFLICT (time, asset_id) DO NOTHING;
+            """
+
+            await session.execute(text(insert_query))
+            await session.commit()
+
+        return total_rows
+
+    async def _flush_buffer(self, buffer_list: list[pl.DataFrame], model_class):
+        if not buffer_list:
+            return
+
+        self.logger.info(
+            f"  >> Flushing Buffer: Writing {len(buffer_list)} chunks to DB..."
+        )
+
+        # 1. Concatenate all dataframes in memory (Fast on Pi)
+        combined_df = pl.concat(buffer_list)
+
+        # 2. Write once
+        count = await self._write_to_db(combined_df, model_class)
+        self.logger.success(f"     -> Wrote {count} rows in one transaction.")
 
     async def _load_active_assets_from_db(self):
         """
