@@ -1,5 +1,6 @@
 # apps/feature-worker/engine.py
 
+import asyncio
 import polars as pl
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -13,18 +14,22 @@ from packages.database.models import Asset, FeaturesDaily
 class FeatureEngine:
     def __init__(self, logger):
         self.logger = logger
-        self.factory = FeatureFactory(settings)  # Instantiate the factory
+        self.factory = FeatureFactory(settings)
         self.active_assets_map: dict[int, str] = {}
+        self.concurrency_limiter = asyncio.Semaphore(5)
 
     async def load_active_assets(self):
         """Loads the map of assets marked as active from the database."""
         async with get_db_session() as session:
             result = await session.execute(
-                select(Asset.id, Asset.symbol).where(Asset.is_active == True)
+                select(Asset.id, Asset.symbol)
+                .where(Asset.is_active == True)
+                .order_by(Asset.symbol)
             )
             self.active_assets_map = {row[0]: row[1] for row in result}
+
         self.logger.info(
-            f"Loaded {len(self.active_assets_map)} active assets to process."
+            f"Loaded {len(self.active_assets_map)} active assets to process (Sorted by Symbol)."
         )
 
     async def run(self):
@@ -34,30 +39,115 @@ class FeatureEngine:
         # Load benchmark data (SPY) once for relative calculations
         benchmark_df = await self._load_asset_data_as_polars("SPY")
 
-        for asset_id, symbol in self.active_assets_map.items():
-            self.logger.info(
-                f"--- Processing features for {symbol} (ID: {asset_id}) ---"
-            )
+        tasks = []
 
-            # 1. Load raw daily data for the asset
+        for asset_id, symbol in self.active_assets_map.items():
+            # Spawn a task for each asset
+            task = asyncio.create_task(
+                self._process_single_asset(asset_id, symbol, benchmark_df)
+            )
+            tasks.append(task)
+
+        # Wait for all tasks to finish
+        # The Semaphore inside _process_single_asset prevents us from running 3200 at once
+        if tasks:
+            await asyncio.gather(*tasks)
+
+        self.logger.success("Feature generation complete for all active assets.")
+
+    async def _process_single_asset(
+        self, asset_id: int, symbol: str, benchmark_df: pl.DataFrame
+    ):
+        """
+        Processes a single asset.
+        Protected by a Semaphore to prevent exploding RAM/DB connections.
+        """
+        async with self.concurrency_limiter:
+            self.logger.info(f"Processing {symbol} (ID: {asset_id})...")
+
+            # 1. Load raw daily data
             asset_df = await self._load_asset_data_as_polars(symbol, asset_id)
             if asset_df.is_empty():
-                self.logger.warning(f"No raw data found for {symbol}. Skipping.")
-                continue
+                # Only log warnings for real stocks, mostly silent for empty ones to reduce noise
+                # self.logger.warning(f"No raw data for {symbol}. Skipping.")
+                return
 
-            # 2. Generate features using the factory
+            # 2. Generate features
+            # Note: This is CPU blocking. In strict async, we might offload this to a thread,
+            # but Polars releases the GIL often, so direct call is usually fine.
             try:
                 features_df = self.factory.generate_all(asset_df, benchmark_df)
             except Exception as e:
                 self.logger.error(
                     f"Failed to generate features for {symbol}: {e}", exc_info=True
                 )
-                continue
+                return
 
-            # 3. Write features to the database
+            # 3. Write features
             await self._write_features_to_db(features_df)
 
-        self.logger.success("Feature generation complete for all active assets.")
+            # self.logger.success(f"Finished {symbol}") # Optional: Reduce log spam
+
+    async def _write_features_to_db(self, df: pl.DataFrame):
+        """Upserts a DataFrame of features into the features_daily table."""
+        if df.is_empty():
+            return
+
+        # 1. Identify valid columns
+        model_columns = {c.name for c in FeaturesDaily.__table__.columns}
+        df_columns = set(df.columns)
+        columns_to_insert = list(model_columns.intersection(df_columns))
+
+        # Prepare records
+        records = df.select(columns_to_insert).to_dicts()
+
+        if not records:
+            return
+
+        # 2. Dynamic Chunk Sizing (The "Staff Engineer" Fix)
+        # POSTGRES LIMIT: 32,767 (Signed 16-bit integer).
+        # We use 30,000 to provide a safety buffer.
+        POSTGRES_PARAM_LIMIT = 30_000
+        num_columns = len(columns_to_insert)
+
+        # Calculate safe chunk size: 30,000 / 30 cols = 1,000 rows
+        safe_chunk_size = POSTGRES_PARAM_LIMIT // num_columns
+
+        # Clamp it to something reasonable (e.g., at least 1, max 10k)
+        safe_chunk_size = max(1, min(10_000, safe_chunk_size))
+
+        self.logger.debug(
+            f"Dynamic Write: {num_columns} cols -> Chunk size {safe_chunk_size}"
+        )
+
+        async with get_db_session() as session:
+            # Upsert Statement Setup
+            stmt = insert(FeaturesDaily).values(records)
+            update_dict = {
+                col.name: col
+                for col in stmt.excluded
+                if col.name not in ["time", "asset_id"]
+            }
+
+            # 3. Execution Loop
+            total_records = len(records)
+            for i in range(0, total_records, safe_chunk_size):
+                chunk = records[i : i + safe_chunk_size]
+
+                # We reconstruct the insert statement for the chunk
+                # (SQLAlchemy insert objects are reusable but values binding is cleaner this way)
+                stmt = insert(FeaturesDaily).values(chunk)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["time", "asset_id"],
+                    set_=update_dict,
+                )
+
+                await session.execute(stmt)
+                await session.commit()
+
+        self.logger.success(
+            f"Successfully upserted {len(records)} feature rows (Chunk size: {safe_chunk_size})."
+        )
 
     async def _load_asset_data_as_polars(
         self, symbol: str, asset_id: int = None
@@ -89,58 +179,3 @@ class FeatureEngine:
         except Exception as e:
             self.logger.error(f"Failed to load data for {symbol} from DB: {e}")
             return pl.DataFrame()
-
-    async def _write_features_to_db(self, df: pl.DataFrame):
-        """Upserts a DataFrame of features into the features_daily table."""
-        if df.is_empty():
-            return
-        
-        # 1. Identify valid columns
-        model_columns = {c.name for c in FeaturesDaily.__table__.columns}
-        df_columns = set(df.columns)
-        columns_to_insert = list(model_columns.intersection(df_columns))
-        
-        # Prepare records
-        records = df.select(columns_to_insert).to_dicts()
-        
-        if not records:
-            return
-            
-        # 2. Dynamic Chunk Sizing (The "Staff Engineer" Fix)
-        # POSTGRES LIMIT: 32,767 (Signed 16-bit integer).
-        # We use 30,000 to provide a safety buffer.
-        POSTGRES_PARAM_LIMIT = 30_000
-        num_columns = len(columns_to_insert)
-        
-        # Calculate safe chunk size: 30,000 / 30 cols = 1,000 rows
-        safe_chunk_size = POSTGRES_PARAM_LIMIT // num_columns
-        
-        # Clamp it to something reasonable (e.g., at least 1, max 10k)
-        safe_chunk_size = max(1, min(10_000, safe_chunk_size))
-        
-        self.logger.debug(f"Dynamic Write: {num_columns} cols -> Chunk size {safe_chunk_size}")
-
-        async with get_db_session() as session:
-            # Upsert Statement Setup
-            stmt = insert(FeaturesDaily).values(records)
-            update_dict = {
-                col.name: col for col in stmt.excluded if col.name not in ["time", "asset_id"]
-            }
-            
-            # 3. Execution Loop
-            total_records = len(records)
-            for i in range(0, total_records, safe_chunk_size):
-                chunk = records[i : i + safe_chunk_size]
-                
-                # We reconstruct the insert statement for the chunk
-                # (SQLAlchemy insert objects are reusable but values binding is cleaner this way)
-                stmt = insert(FeaturesDaily).values(chunk)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=['time', 'asset_id'],
-                    set_=update_dict,
-                )
-                
-                await session.execute(stmt)
-                await session.commit()
-                
-        self.logger.success(f"Successfully upserted {len(records)} feature rows (Chunk size: {safe_chunk_size}).")
