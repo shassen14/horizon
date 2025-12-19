@@ -4,329 +4,329 @@
  */
 
 export interface paths {
-    "/api/v1/public/market/history/{symbol}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Market History */
-        get: operations["get_symbol_history"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+  "/api/v1/public/market/history/{symbol}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/public/assets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List or Search Assets */
-        get: operations["list_assets_api_v1_public_assets_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Get Market History */
+    get: operations["get_symbol_history"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/public/assets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/public/assets/{symbol}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Asset Details */
-        get: operations["get_asset_detail_api_v1_public_assets__symbol__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** List or Search Assets */
+    get: operations["list_assets_api_v1_public_assets_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/public/assets/{symbol}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read Root
-         * @description A simple health check endpoint.
-         */
-        get: operations["health_check"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    /** Get Asset Details */
+    get: operations["get_asset_detail_api_v1_public_assets__symbol__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    /**
+     * Read Root
+     * @description A simple health check endpoint.
+     */
+    get: operations["health_check"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: {
-        /**
-         * AssetDetail
-         * @description Complete metadata for a single asset.
-         */
-        AssetDetail: {
-            /** Symbol */
-            symbol: string;
-            /** Name */
-            name?: string | null;
-            /** Exchange */
-            exchange?: string | null;
-            /** Asset Class */
-            asset_class: string;
-            /** Is Active */
-            is_active: boolean;
-        };
-        /**
-         * AssetInfo
-         * @description Lightweight asset information, suitable for search results and lists.
-         */
-        AssetInfo: {
-            /** Symbol */
-            symbol: string;
-            /** Name */
-            name?: string | null;
-            /** Exchange */
-            exchange?: string | null;
-        };
-        /**
-         * FeatureSet
-         * @description A deeply nested object containing all feature families.
-         */
-        FeatureSet: {
-            trend: components["schemas"]["TrendFeatures"];
-            momentum: components["schemas"]["MomentumFeatures"];
-            volatility: components["schemas"]["VolatilityFeatures"];
-            volume: components["schemas"]["VolumeFeatures"];
-        };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
-        /**
-         * HistoryDataPoint
-         * @description The main, combined data point for the history endpoint.
-         */
-        HistoryDataPoint: {
-            /**
-             * Time
-             * Format: date-time
-             */
-            time: string;
-            /** Open */
-            open: number;
-            /** High */
-            high: number;
-            /** Low */
-            low: number;
-            /** Close */
-            close: number;
-            /** Volume */
-            volume: number;
-            features: components["schemas"]["FeatureSet"];
-        };
-        /** MomentumFeatures */
-        MomentumFeatures: {
-            /** Rsi 14 */
-            rsi_14?: number | null;
-            /** Return 1D */
-            return_1d?: number | null;
-            /** Return 5D */
-            return_5d?: number | null;
-            /** Return 21D */
-            return_21d?: number | null;
-            /** Return 63D */
-            return_63d?: number | null;
-        };
-        /** TrendFeatures */
-        TrendFeatures: {
-            /** Sma 20 */
-            sma_20?: number | null;
-            /** Sma 50 */
-            sma_50?: number | null;
-            /** Sma 200 */
-            sma_200?: number | null;
-            /** Ema 12 */
-            ema_12?: number | null;
-            /** Ema 20 */
-            ema_20?: number | null;
-            /** Ema 26 */
-            ema_26?: number | null;
-            /** Ema 50 */
-            ema_50?: number | null;
-            /** Macd */
-            macd?: number | null;
-            /** Macd Signal */
-            macd_signal?: number | null;
-            /** Macd Hist */
-            macd_hist?: number | null;
-        };
-        /** ValidationError */
-        ValidationError: {
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-        };
-        /** VolatilityFeatures */
-        VolatilityFeatures: {
-            /** Atr 14 */
-            atr_14?: number | null;
-            /** Atr 14 Pct */
-            atr_14_pct?: number | null;
-        };
-        /** VolumeFeatures */
-        VolumeFeatures: {
-            /** Volume Adv 20 */
-            volume_adv_20?: number | null;
-            /** Relative Volume */
-            relative_volume?: number | null;
-        };
+  schemas: {
+    /**
+     * AssetDetail
+     * @description Complete metadata for a single asset.
+     */
+    AssetDetail: {
+      /** Symbol */
+      symbol: string;
+      /** Name */
+      name?: string | null;
+      /** Exchange */
+      exchange?: string | null;
+      /** Asset Class */
+      asset_class: string;
+      /** Is Active */
+      is_active: boolean;
     };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+    /**
+     * AssetInfo
+     * @description Lightweight asset information, suitable for search results and lists.
+     */
+    AssetInfo: {
+      /** Symbol */
+      symbol: string;
+      /** Name */
+      name?: string | null;
+      /** Exchange */
+      exchange?: string | null;
+    };
+    /**
+     * FeatureSet
+     * @description A deeply nested object containing all feature families.
+     */
+    FeatureSet: {
+      trend: components["schemas"]["TrendFeatures"];
+      momentum: components["schemas"]["MomentumFeatures"];
+      volatility: components["schemas"]["VolatilityFeatures"];
+      volume: components["schemas"]["VolumeFeatures"];
+    };
+    /** HTTPValidationError */
+    HTTPValidationError: {
+      /** Detail */
+      detail?: components["schemas"]["ValidationError"][];
+    };
+    /**
+     * HistoryDataPoint
+     * @description The main, combined data point for the history endpoint.
+     */
+    HistoryDataPoint: {
+      /**
+       * Time
+       * Format: date-time
+       */
+      time: string;
+      /** Open */
+      open: number;
+      /** High */
+      high: number;
+      /** Low */
+      low: number;
+      /** Close */
+      close: number;
+      /** Volume */
+      volume: number;
+      features: components["schemas"]["FeatureSet"];
+    };
+    /** MomentumFeatures */
+    MomentumFeatures: {
+      /** Rsi 14 */
+      rsi_14?: number | null;
+      /** Return 1D */
+      return_1d?: number | null;
+      /** Return 5D */
+      return_5d?: number | null;
+      /** Return 21D */
+      return_21d?: number | null;
+      /** Return 63D */
+      return_63d?: number | null;
+    };
+    /** TrendFeatures */
+    TrendFeatures: {
+      /** Sma 20 */
+      sma_20?: number | null;
+      /** Sma 50 */
+      sma_50?: number | null;
+      /** Sma 200 */
+      sma_200?: number | null;
+      /** Ema 12 */
+      ema_12?: number | null;
+      /** Ema 20 */
+      ema_20?: number | null;
+      /** Ema 26 */
+      ema_26?: number | null;
+      /** Ema 50 */
+      ema_50?: number | null;
+      /** Macd */
+      macd?: number | null;
+      /** Macd Signal */
+      macd_signal?: number | null;
+      /** Macd Hist */
+      macd_hist?: number | null;
+    };
+    /** ValidationError */
+    ValidationError: {
+      /** Location */
+      loc: (string | number)[];
+      /** Message */
+      msg: string;
+      /** Error Type */
+      type: string;
+    };
+    /** VolatilityFeatures */
+    VolatilityFeatures: {
+      /** Atr 14 */
+      atr_14?: number | null;
+      /** Atr 14 Pct */
+      atr_14_pct?: number | null;
+    };
+    /** VolumeFeatures */
+    VolumeFeatures: {
+      /** Volume Adv 20 */
+      volume_adv_20?: number | null;
+      /** Relative Volume */
+      relative_volume?: number | null;
+    };
+  };
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_symbol_history: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                symbol: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HistoryDataPoint"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  get_symbol_history: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        symbol: string;
+      };
+      cookie?: never;
     };
-    list_assets_api_v1_public_assets_get: {
-        parameters: {
-            query?: {
-                /** @description Search query for symbol or name */
-                q?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssetInfo"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["HistoryDataPoint"][];
         };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
     };
-    get_asset_detail_api_v1_public_assets__symbol__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                symbol: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssetDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
+  };
+  list_assets_api_v1_public_assets_get: {
+    parameters: {
+      query?: {
+        /** @description Search query for symbol or name */
+        q?: string | null;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    health_check: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["AssetInfo"][];
         };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
     };
+  };
+  get_asset_detail_api_v1_public_assets__symbol__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        symbol: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AssetDetail"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  health_check: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+    };
+  };
 }

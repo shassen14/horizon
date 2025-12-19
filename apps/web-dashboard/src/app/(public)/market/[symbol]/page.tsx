@@ -3,14 +3,18 @@
 import { getHistory } from "@/lib/api";
 import { FeatureTable } from "@/components/business/FeatureTable";
 import { notFound } from "next/navigation";
-import { ChartSection } from './chart-section';
+import { ChartSection } from "./chart-section";
 
 // This is the stable, correct signature for Next.js 14
-export default async function StockDetailPage({ params }: { params: { symbol: string } }) {
+export default async function StockDetailPage({
+  params,
+}: {
+  params: { symbol: string };
+}) {
   const symbol = params.symbol.toUpperCase();
-  
+
   // Fetch data on the server
-  const initialData = await getHistory(symbol, 365 * 2); 
+  const initialData = await getHistory(symbol, 365 * 2);
 
   // If API returns no data (e.g., 404), show the Not Found page.
   if (!initialData || initialData.length === 0) {
@@ -20,7 +24,7 @@ export default async function StockDetailPage({ params }: { params: { symbol: st
   const reversedData = [...initialData].reverse();
 
   // Prepare data for the chart component
-  const ohlcData = reversedData.map(d => ({
+  const ohlcData = reversedData.map((d) => ({
     time: (new Date(d.time).getTime() / 1000) as any,
     open: d.open,
     high: d.high,
@@ -28,7 +32,7 @@ export default async function StockDetailPage({ params }: { params: { symbol: st
     close: d.close,
   }));
 
-  const volumeData = reversedData.map(d => ({
+  const volumeData = reversedData.map((d) => ({
     time: (new Date(d.time).getTime() / 1000) as any,
     value: d.volume,
   }));
@@ -42,11 +46,11 @@ export default async function StockDetailPage({ params }: { params: { symbol: st
         <h1 className="text-3xl font-bold">{symbol}</h1>
         <p className="text-muted-foreground">Daily Chart & Analysis</p>
       </div>
-        <ChartSection 
-          ohlcData={ohlcData} 
-          volumeData={volumeData} 
-          technicalsData={initialData} // Pass un-reversed for indicator logic
-        />
+      <ChartSection
+        ohlcData={ohlcData}
+        volumeData={volumeData}
+        technicalsData={initialData} // Pass un-reversed for indicator logic
+      />
       <div>
         <h2 className="text-2xl font-bold">Latest Technical Features</h2>
         <p className="text-muted-foreground">
