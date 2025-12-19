@@ -34,6 +34,11 @@ class VolatilityFeatures(BaseModel):
     atr_14: float | None = None
     atr_14_pct: float | None = None
 
+    bb_upper_20: float | None = None
+    bb_middle_20: float | None = None
+    bb_lower_20: float | None = None
+    bb_width_20: float | None = None
+    
 
 class VolumeFeatures(BaseModel):
     model_config = ConfigDict(from_attributes=True)

@@ -408,7 +408,7 @@ class IngestionEngine:
 
         # 7. Batching Strategy (Symbol Batching)
         # For Intraday, we fix the Number of Symbols (to keep URL short) and vary the Time Range.
-        SYMBOL_BATCH_SIZE = 50
+        SYMBOL_BATCH_SIZE = 5
 
         # We will accumulate this many API responses before writing to DB
         WRITE_BUFFER_LIMIT = 20  # 20 * 10k rows = 200k rows per write. Easy for Pi RAM.

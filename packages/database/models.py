@@ -124,6 +124,12 @@ class FeaturesDaily(Base):
     atr_14 = Column(Float)  # Average True Range (absolute value)
     atr_14_pct = Column(Float)  # ATR as a percentage of price
 
+    # Bollinger Bands (Assuming default period 20)
+    bb_upper_20 = Column(Float)
+    bb_middle_20 = Column(Float)
+    bb_lower_20 = Column(Float)
+    bb_width_20 = Column(Float) # (Upper - Lower) / Middle
+
     # --- Family: Volume & Money Flow ---
     volume_adv_20 = Column(Float)  # 20-day Average Daily Volume
     relative_volume = Column(Float)  # Today's Volume / ADV_20

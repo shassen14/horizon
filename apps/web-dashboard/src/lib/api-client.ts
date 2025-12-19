@@ -195,6 +195,14 @@ export interface components {
       atr_14?: number | null;
       /** Atr 14 Pct */
       atr_14_pct?: number | null;
+      /** Bb Upper 20 */
+      bb_upper_20?: number | null;
+      /** Bb Middle 20 */
+      bb_middle_20?: number | null;
+      /** Bb Lower 20 */
+      bb_lower_20?: number | null;
+      /** Bb Width 20 */
+      bb_width_20?: number | null;
     };
     /** VolumeFeatures */
     VolumeFeatures: {
