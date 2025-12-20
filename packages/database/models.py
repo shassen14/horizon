@@ -11,7 +11,6 @@ from sqlalchemy import (
     DateTime,
     BigInteger,
     ForeignKey,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base
 
@@ -29,6 +28,10 @@ class Asset(Base):
     asset_class = Column(String)
     is_active = Column(Boolean, default=True)
     last_updated = Column(DateTime(timezone=True))
+    # Specific Ledger for 'market_data_daily' data ingestion
+    last_market_data_daily_update = Column(DateTime(timezone=True), nullable=True)
+    # Specific Ledger for 'market_data_5min' data ingestion
+    last_market_data_5min_update = Column(DateTime(timezone=True), nullable=True)
 
 
 class MarketDataDaily(Base):
@@ -128,7 +131,7 @@ class FeaturesDaily(Base):
     bb_upper_20 = Column(Float)
     bb_middle_20 = Column(Float)
     bb_lower_20 = Column(Float)
-    bb_width_20 = Column(Float) # (Upper - Lower) / Middle
+    bb_width_20 = Column(Float)  # (Upper - Lower) / Middle
 
     # --- Family: Volume & Money Flow ---
     volume_adv_20 = Column(Float)  # 20-day Average Daily Volume
