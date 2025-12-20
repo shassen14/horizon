@@ -1,4 +1,4 @@
-# apps/ingest-worker/main.py
+# apps/ingest_worker/main.py
 
 import asyncio
 import argparse
