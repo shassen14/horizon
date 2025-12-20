@@ -8,42 +8,26 @@ import {
   ColorType,
   IChartApi,
   ISeriesApi,
-  UTCTimestamp,
-  LineData,
-  HistogramData,
-  CandlestickData,
   CandlestickSeries,
   HistogramSeries,
   LineSeries,
+  CandlestickData,
+  HistogramData,
+  LineData,
+  UTCTimestamp,
+  LineWidth,
+  LineStyle,
 } from "lightweight-charts";
 import { HistoryDataPoint } from "@/lib/api";
-
-// Define the shape of the data this component expects
-export interface OhlcData {
-  time: UTCTimestamp;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
-
-export interface VolumeData {
-  time: UTCTimestamp;
-  value: number;
-}
-
-// Define which indicators can be toggled
-export type IndicatorSelection = {
-  sma50: boolean;
-  sma200: boolean;
-  rsi14: boolean;
-};
+import { OhlcData, VolumeData } from "@/types/chart";
+import { INDICATOR_CONTROLS, ALL_SERIES_CONFIG } from "@/config/indicators";
 
 interface FinancialChartProps {
   ohlcData: OhlcData[];
   volumeData: VolumeData[];
-  technicalsData: HistoryDataPoint[]; // Pass the full history for features
-  selectedIndicators: IndicatorSelection;
+  technicalsData: HistoryDataPoint[];
+  // This allows the component to accept ANY keys defined in your config/indicators.ts
+  selectedIndicators: Record<string, boolean>;
 }
 
 export function FinancialChart({
@@ -53,17 +37,19 @@ export function FinancialChart({
   selectedIndicators,
 }: FinancialChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-
-  // Use refs to hold stable references to the chart and series instances
   const chartRef = useRef<IChartApi | null>(null);
+
+  // Stable references for the main series
   const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const sma50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const sma200SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+
+  // Dynamic dictionary to hold all indicator series instances
+  // Key = series.key (from config), Value = Series Instance
+  const indicatorsRef = useRef<
+    Record<string, ISeriesApi<"Line" | "Histogram">>
+  >({});
 
   // == 1. Initialization Effect ==
-  // This runs only once when the component mounts.
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -75,18 +61,17 @@ export function FinancialChart({
         attributionLogo: false,
       },
       width: chartContainerRef.current.clientWidth,
-      height: 450,
+      height: 600, // Taller to accommodate panes
       grid: {
         vertLines: { color: "#e1e1e1" },
         horzLines: { color: "#e1e1e1" },
       },
-      rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.25 } },
+      rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.3 } }, // Reserve bottom 30% for oscillators
       timeScale: { timeVisible: true, secondsVisible: false },
     });
     chartRef.current = chart;
 
-    // Add all series at once. We will toggle their visibility later.
-    // 1. Candlestick Series
+    //Add Main Series (Candlesticks)
     candlestickSeriesRef.current = chart.addSeries(CandlestickSeries, {
       upColor: "#26a69a",
       downColor: "#ef5350",
@@ -95,59 +80,70 @@ export function FinancialChart({
       wickDownColor: "#ef5350",
     });
 
-    // 2. Volume Series (on its own price scale)
+    // Add Volume Series (Overlay at bottom of main pane)
     volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
-      priceScaleId: "volume_scale",
+      priceScaleId: "", // Overlay on main scale
     });
-    // Configure the volume price scale to be at the bottom
-    chart.priceScale("volume_scale").applyOptions({
-      scaleMargins: { top: 0.7, bottom: 0 },
-      entireTextOnly: true,
+    volumeSeriesRef.current.priceScale().applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 }, // Push to very bottom
     });
 
-    // 3. Indicator Series
-    sma50SeriesRef.current = chart.addSeries(LineSeries, {
-      color: "orange",
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-      visible: false,
-    });
-    sma200SeriesRef.current = chart.addSeries(LineSeries, {
-      color: "purple",
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-      visible: false,
+    // 4. Initialize ALL Indicators from Config
+    // We create every possible series defined in config, but set them to invisible.
+    ALL_SERIES_CONFIG.forEach((seriesConfig) => {
+      // Determine Scaling Logic
+      // 'separate' -> Creates a new pane using the key as ID
+      // 'overlay'  -> Locks to 'right' (main price scale)
+      const priceScaleId =
+        seriesConfig.pane === "separate" ? seriesConfig.key : "right";
+
+      const commonOptions = {
+        color: seriesConfig.color,
+        visible: false,
+        priceScaleId: priceScaleId,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        // Pass the line style and width from config, or default
+        lineWidth: (seriesConfig.lineWidth || 1) as LineWidth,
+        lineStyle: (seriesConfig.lineStyle || 0) as LineStyle, // 0=Solid, 1=Dotted, 2=Dashed
+      };
+
+      let series;
+      if (seriesConfig.type === "Histogram") {
+        series = chart.addSeries(HistogramSeries, commonOptions);
+      } else {
+        series = chart.addSeries(LineSeries, commonOptions);
+      }
+
+      // Configure Layout for Separate Panes
+      if (seriesConfig.pane === "separate") {
+        chart.priceScale(seriesConfig.key).applyOptions({
+          scaleMargins: { top: 0.8, bottom: 0 }, // Squish into bottom strip
+        });
+      }
+
+      // Store reference for updates later
+      indicatorsRef.current[seriesConfig.key] = series;
     });
 
-    // RSI has its own price scale
-    rsiSeriesRef.current = chart.addSeries(LineSeries, {
-      color: "#2962FF",
-      lineWidth: 2,
-      priceScaleId: "rsi_scale",
-      visible: false,
-    });
-    chart.priceScale("rsi_scale").applyOptions({
-      scaleMargins: { top: 0.8, bottom: 0 },
-    });
-
-    // Handle window resizing
-    const handleResize = () =>
-      chart.applyOptions({ width: chartContainerRef.current?.clientWidth });
+    // Handle Resizing
+    const handleResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+        });
+      }
+    };
     window.addEventListener("resize", handleResize);
 
-    // Cleanup function: runs when the component unmounts
     return () => {
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, []); // Empty dependency array means this runs only once.
+  }, []); // Runs once on mount
 
-  // == 2. Data Update Effects ==
-  // These run whenever the data props change.
-
+  // Data Updates (OHLC & Volume)
   useEffect(() => {
     if (candlestickSeriesRef.current) {
       candlestickSeriesRef.current.setData(ohlcData as CandlestickData[]);
@@ -155,8 +151,7 @@ export function FinancialChart({
   }, [ohlcData]);
 
   useEffect(() => {
-    if (volumeSeriesRef.current) {
-      // Color volume bars based on price change
+    if (volumeSeriesRef.current && ohlcData.length > 0) {
       const coloredVolumeData = ohlcData.map((d, i) => ({
         time: d.time,
         value: volumeData[i]?.value || 0,
@@ -169,52 +164,69 @@ export function FinancialChart({
     }
   }, [ohlcData, volumeData]);
 
-  // == 3. Indicator Toggle Effects ==
-  // These run when technicals data or the selection state changes.
-
+  // == 3. Dynamic Indicator Update Loop ==
   useEffect(() => {
-    const updateLineSeries = (
-      seriesRef: React.MutableRefObject<ISeriesApi<"Line"> | null>,
-      isVisible: boolean,
-      dataKey: string
-    ) => {
-      const series = seriesRef.current;
-      if (!series) return;
+    if (!technicalsData || technicalsData.length === 0) return;
 
-      if (isVisible && technicalsData) {
-        const lineData = technicalsData
-          .map((d) => {
-            // This is a common pattern for accessing nested object properties via a string path.
-            const value = dataKey
-              .split(".")
-              .reduce((obj, key) => obj?.[key], d.features as any);
+    // Loop through the UI CONTROLS (User Intent)
+    INDICATOR_CONTROLS.forEach((control) => {
+      const isVisible = selectedIndicators[control.id];
 
-            return {
+      // For each control, update ALL its associated series (e.g. BB has 3 series)
+      control.series.forEach((seriesDef) => {
+        const series = indicatorsRef.current[seriesDef.key];
+        if (!series) return;
+
+        if (isVisible) {
+          // Map and Transform Data
+          const rawData = technicalsData.map((d) => {
+            // This tells TS: "It's an object where keys are strings, and values are numbers or edge cases."
+            const features = d.features as Record<
+              string,
+              Record<string, number | null | undefined>
+            >;
+            const [category, field] = seriesDef.apiPath.split(".");
+
+            const val = features[category]?.[field];
+
+            // If val is missing or invalid, bail out early.
+            // This prevents the "possibly null" error later in the code.
+            if (typeof val !== "number" || !isFinite(val)) {
+              return null;
+            }
+
+            // Base data point object
+            const point: HistogramData | LineData = {
               time: (new Date(d.time).getTime() / 1000) as UTCTimestamp,
-              // We assert that we expect 'value' to be a number.
-              value: value as number,
+              value: val as number,
             };
-          })
-          // Filter out any points where the value is null, undefined, or not a valid number.
-          .filter((d) => d.value != null && isFinite(d.value))
-          // IMPORTANT: The API returns data latest-first, but the chart needs it sorted oldest-first.
-          .sort((a, b) => a.time - b.time);
 
-        series.setData(lineData as LineData[]);
-        series.applyOptions({ visible: true });
-      } else {
-        series.setData([]); // Clear data when hiding
-        series.applyOptions({ visible: false });
-      }
-    };
-    updateLineSeries(sma50SeriesRef, selectedIndicators.sma50, "trend.sma_50");
-    updateLineSeries(
-      sma200SeriesRef,
-      selectedIndicators.sma200,
-      "trend.sma_200"
-    );
-    updateLineSeries(rsiSeriesRef, selectedIndicators.rsi14, "momentum.rsi_14");
+            if (
+              seriesDef.type === "Histogram" &&
+              seriesDef.colorStrategy === "sign"
+            ) {
+              // Use standard candlestick colors: Green for positive, Red for negative
+              point.color = val >= 0 ? "#26a69a" : "#ef5350";
+            }
+
+            return point;
+          });
+
+          // 2. Filter out the nulls
+          // The type predicate '(p): p is ...' ensures the resulting array is clean types
+          const cleanData = rawData
+            .filter((p): p is HistogramData | LineData => p !== null)
+            .sort((a, b) => (a.time as number) - (b.time as number));
+
+          series.setData(cleanData);
+          series.applyOptions({ visible: true });
+        } else {
+          series.setData([]); // Clear memory
+          series.applyOptions({ visible: false });
+        }
+      });
+    });
   }, [technicalsData, selectedIndicators]);
 
-  return <div ref={chartContainerRef} className="w-full h-[450px]" />;
+  return <div ref={chartContainerRef} className="w-full h-[600px]" />;
 }
