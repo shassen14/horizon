@@ -1,6 +1,7 @@
 # apps/api_server/main.py
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -9,6 +10,7 @@ from packages.quant_lib.logging import LogManager
 from apps.api_server.core.limiter import limiter
 from apps.api_server.routers import market as public_router
 from apps.api_server.routers import assets as assets_router
+from apps.api_server.routers import discovery as discovery_router
 
 
 # Init Logger
@@ -17,6 +19,21 @@ logger = log_manager.get_logger("main")
 
 # Create App
 app = FastAPI(title="Horizon API", version="1.0.0")
+
+# Define allowed origins (who can talk to this API?)
+origins = [
+    "http://localhost:3000",  # Next.js Local Dev
+    "http://127.0.0.1:3000",  # Alternative Local Dev
+    # Add your Vercel URL here later: e.g. "https://horizon-dashboard.vercel.app"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # List of allowed origins
+    allow_credentials=True,  # Allow cookies/auth headers
+    allow_methods=["*"],  # Allow all methods (GET, POST, PUT, DELETE)
+    allow_headers=["*"],  # Allow all headers
+)
 
 # Attach State & Handlers
 app.state.limiter = limiter
@@ -27,6 +44,7 @@ api_prefix = "/api/v1"
 
 app.include_router(public_router.router, prefix=api_prefix)
 app.include_router(assets_router.router, prefix=api_prefix)
+app.include_router(discovery_router.router, prefix=api_prefix)
 
 
 @app.get("/", tags=["Health Check"], operation_id="health_check")
