@@ -55,6 +55,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/public/discovery/market-leaders": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Market Leaders
+     * @description Provides a ranked list of assets based on key daily metrics, designed for market discovery.
+     */
+    get: operations["get_market_leaders"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/": {
     parameters: {
       query?: never;
@@ -156,6 +176,30 @@ export interface components {
       return_21d?: number | null;
       /** Return 63D */
       return_63d?: number | null;
+    };
+    /**
+     * ScreenerResult
+     * @description Represents a single asset from the Screener/Market Leaders output.
+     */
+    ScreenerResult: {
+      /** Rank */
+      rank: number;
+      /** Symbol */
+      symbol: string;
+      /** Name */
+      name?: string | null;
+      /** Latest Price */
+      latest_price: number;
+      /** Daily Change Pct */
+      daily_change_pct: number;
+      /** Relative Volume */
+      relative_volume: number | null;
+      /** Rsi 14 */
+      rsi_14: number | null;
+      /** Sma 50 Pct Diff */
+      sma_50_pct_diff: number | null;
+      /** Atr 14 Pct */
+      atr_14_pct: number | null;
     };
     /** TrendFeatures */
     TrendFeatures: {
@@ -304,6 +348,48 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["AssetDetail"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_market_leaders: {
+    parameters: {
+      query?: {
+        /** @description Metric to sort results by. */
+        sort_by?:
+          | "relative_volume"
+          | "rsi_14"
+          | "return_1d"
+          | "volume_adv_20"
+          | "atr_14_pct";
+        /** @description Sort direction. */
+        sort_dir?: "asc" | "desc";
+        limit?: number;
+        min_price?: number;
+        min_avg_volume?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ScreenerResult"][];
         };
       };
       /** @description Validation Error */

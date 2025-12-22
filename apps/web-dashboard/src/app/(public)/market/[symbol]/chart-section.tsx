@@ -1,3 +1,5 @@
+// apps/web-dashboard/src/app/(public)/market/[symbol]/chart-section.tsx
+
 "use client";
 
 import { useState } from "react";
