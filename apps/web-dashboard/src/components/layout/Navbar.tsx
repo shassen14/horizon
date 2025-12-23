@@ -2,17 +2,25 @@
 
 import Link from "next/link";
 import { CommandPalette } from "@/components/search/CommandPalette";
+import { Activity } from "lucide-react";
 
 export function Navbar() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 max-w-screen-2xl items-center">
+      <div className="container flex h-14 max-w-screen-2xl items-center px-4 sm:px-6 lg:px-8">
         {/* Logo / Brand */}
         <div className="mr-4 hidden md:flex">
           <Link href="/" className="mr-6 flex items-center space-x-2">
+            <Activity className="h-6 w-6" /> {/* Example Icon */}
             <span className="hidden font-bold sm:inline-block">Horizon</span>
           </Link>
           <nav className="flex items-center gap-6 text-sm">
+            <Link
+              href="/"
+              className="transition-colors hover:text-foreground/80 text-foreground"
+            >
+              Dashboard
+            </Link>
             <Link
               href="/market"
               className="transition-colors hover:text-foreground/80 text-foreground/60"

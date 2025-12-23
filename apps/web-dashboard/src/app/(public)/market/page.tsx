@@ -1,6 +1,4 @@
-// apps/web-dashboard/src/app/(public)/market/page.tsx
-
-import { MarketLeadersTable } from "./market-leaders-table";
+import { MarketScreener } from "@/components/market/MarketScreener";
 
 export default function MarketPage() {
   return (
@@ -8,11 +6,10 @@ export default function MarketPage() {
       <div>
         <h1 className="text-3xl font-bold">Market Discovery</h1>
         <p className="text-muted-foreground">
-          Find stocks with unusual activity based on daily metrics.
+          Filter and sort assets to find opportunities matching your criteria.
         </p>
       </div>
-
-      <MarketLeadersTable />
+      <MarketScreener />
     </div>
   );
 }

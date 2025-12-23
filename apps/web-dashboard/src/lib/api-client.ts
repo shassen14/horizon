@@ -21,6 +21,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/public/market/snapshots": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Market Snapshots
+     * @description Returns the latest price, change, and a sparkline trend for a list of symbols.
+     *     Optimized for dashboards and watchlists.
+     */
+    get: operations["get_snapshots_api_v1_public_market_snapshots_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/public/assets": {
     parameters: {
       query?: never;
@@ -67,6 +88,47 @@ export interface paths {
      * @description Provides a ranked list of assets based on key daily metrics, designed for market discovery.
      */
     get: operations["get_market_leaders"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/public/system/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get System Status
+     * @description Checks the freshness of data and overall system health.
+     */
+    get: operations["get_system_status_api_v1_public_system_status_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/public/intelligence/regime": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Current Market Regime
+     * @description Returns the current market regime (Bull/Bear/Risk-On/Off).
+     *     Currently implements a Heuristic Logic (v1): SPY Trend + Volatility.
+     */
+    get: operations["get_market_regime_api_v1_public_intelligence_regime_get"];
     put?: never;
     post?: never;
     delete?: never;
@@ -128,6 +190,11 @@ export interface components {
       exchange?: string | null;
     };
     /**
+     * Environment
+     * @enum {string}
+     */
+    Environment: "production" | "development" | "staging";
+    /**
      * FeatureSet
      * @description A deeply nested object containing all feature families.
      */
@@ -164,6 +231,44 @@ export interface components {
       volume: number;
       features: components["schemas"]["FeatureSet"];
     };
+    /** MarketRegime */
+    MarketRegime: {
+      /**
+       * Timestamp
+       * Format: date-time
+       */
+      timestamp: string;
+      regime: components["schemas"]["RegimeType"];
+      risk_signal: components["schemas"]["RiskLevel"];
+      /** Trend Score */
+      trend_score: number;
+      /** Volatility Score */
+      volatility_score: number;
+      /** Breadth Pct */
+      breadth_pct?: number | null;
+      /** Market Volatility Avg */
+      market_volatility_avg?: number | null;
+      /** Summary */
+      summary: string;
+    };
+    /** MarketSnapshot */
+    MarketSnapshot: {
+      /** Symbol */
+      symbol: string;
+      /** Price */
+      price: number;
+      /** Change 1D */
+      change_1d?: number | null;
+      /** Change 1D Pct */
+      change_1d_pct?: number | null;
+      /**
+       * Last Updated
+       * Format: date-time
+       */
+      last_updated: string;
+      /** Sparkline */
+      sparkline: number[];
+    };
     /** MomentumFeatures */
     MomentumFeatures: {
       /** Rsi 14 */
@@ -177,6 +282,16 @@ export interface components {
       /** Return 63D */
       return_63d?: number | null;
     };
+    /**
+     * RegimeType
+     * @enum {string}
+     */
+    RegimeType: "Bull" | "Bear" | "Sideways";
+    /**
+     * RiskLevel
+     * @enum {string}
+     */
+    RiskLevel: "Risk On" | "Risk Off" | "Neutral";
     /**
      * ScreenerResult
      * @description Represents a single asset from the Screener/Market Leaders output.
@@ -200,6 +315,22 @@ export interface components {
       sma_50_pct_diff: number | null;
       /** Atr 14 Pct */
       atr_14_pct: number | null;
+    };
+    /**
+     * SystemHealth
+     * @enum {string}
+     */
+    SystemHealth: "Healthy" | "Degraded" | "Stale" | "Maintenance";
+    /** SystemStatus */
+    SystemStatus: {
+      status: components["schemas"]["SystemHealth"];
+      /** Last Daily Update */
+      last_daily_update: string | null;
+      /** Last Intraday Update */
+      last_intraday_update: string | null;
+      /** Active Assets */
+      active_assets: number;
+      environment: components["schemas"]["Environment"];
     };
     /** TrendFeatures */
     TrendFeatures: {
@@ -284,6 +415,39 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["HistoryDataPoint"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_snapshots_api_v1_public_market_snapshots_get: {
+    parameters: {
+      query: {
+        /** @description Comma-separated list of symbols (e.g., SPY,BTC,NVDA) */
+        symbols: string;
+        lookback_days?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MarketSnapshot"][];
         };
       };
       /** @description Validation Error */
@@ -399,6 +563,46 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_system_status_api_v1_public_system_status_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SystemStatus"];
+        };
+      };
+    };
+  };
+  get_market_regime_api_v1_public_intelligence_regime_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MarketRegime"];
         };
       };
     };
