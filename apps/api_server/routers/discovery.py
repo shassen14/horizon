@@ -1,3 +1,5 @@
+# apps/api_server/routers/discovery.py
+
 from typing import List, Literal
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select, desc, func
@@ -41,16 +43,6 @@ async def get_market_leaders(
     """
     Provides a ranked list of assets based on key daily metrics, designed for market discovery.
     """
-    # 1. Subquery to find the latest timestamp for each active asset in features_daily
-    latest_features_sq = (
-        select(
-            FeaturesDaily.asset_id, func.max(FeaturesDaily.time).label("latest_time")
-        )
-        .join(Asset, Asset.id == FeaturesDaily.asset_id)
-        .where(Asset.is_active == True)
-        .group_by(FeaturesDaily.asset_id)
-        .subquery("latest_features_sq")
-    )
 
     # 2. Main Query - Expanded to include new fields
     stmt = (
@@ -64,22 +56,28 @@ async def get_market_leaders(
             FeaturesDaily.sma_50,
             FeaturesDaily.atr_14_pct,
         )
-        .join(latest_features_sq, Asset.id == latest_features_sq.c.asset_id)
+        # 1. Start with Active Assets (Smallest set: ~3,200 rows)
+        .select_from(Asset).where(
+            (Asset.is_active == True)
+            & (Asset.last_market_data_daily_update.is_not(None))  # Ensure we have data
+        )
+        # 2. Join Features directly using the Ledger Timestamp
+        # This uses the Primary Key Index (time, asset_id) -> Instant Lookup
         .join(
             FeaturesDaily,
-            (FeaturesDaily.asset_id == latest_features_sq.c.asset_id)
-            & (FeaturesDaily.time == latest_features_sq.c.latest_time),
+            (FeaturesDaily.asset_id == Asset.id)
+            & (FeaturesDaily.time == Asset.last_market_data_daily_update),
         )
+        # 3. Join Market Data using the same Ledger Timestamp
         .join(
             MarketDataDaily,
-            (MarketDataDaily.asset_id == FeaturesDaily.asset_id)
-            & (MarketDataDaily.time == FeaturesDaily.time),
+            (MarketDataDaily.asset_id == Asset.id)
+            & (MarketDataDaily.time == Asset.last_market_data_daily_update),
         )
+        # 4. Apply Filters
         .where(
             (MarketDataDaily.close >= min_price)
-            &
-            # Note: We need to make sure volume_adv_20 is in the select if we filter by it
-            (FeaturesDaily.volume_adv_20 >= min_avg_volume)
+            & (FeaturesDaily.volume_adv_20 >= min_avg_volume)
         )
     )
 

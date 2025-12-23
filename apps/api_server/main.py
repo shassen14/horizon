@@ -6,11 +6,14 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 # Absolute, clean imports
+from packages.quant_lib.config import settings
 from packages.quant_lib.logging import LogManager
 from apps.api_server.core.limiter import limiter
 from apps.api_server.routers import market as public_router
 from apps.api_server.routers import assets as assets_router
 from apps.api_server.routers import discovery as discovery_router
+from apps.api_server.routers import system as system_router
+from apps.api_server.routers import intelligence as intelligence_router
 
 
 # Init Logger
@@ -18,8 +21,11 @@ log_manager = LogManager(service_name="api_server")
 logger = log_manager.get_logger("main")
 
 # Create App
-app = FastAPI(title="Horizon API", version="1.0.0")
-
+app = FastAPI(
+    title=settings.system.project_name,
+    version=settings.system.version,
+    debug=settings.system.debug,
+)
 # Define allowed origins (who can talk to this API?)
 origins = [
     "http://localhost:3000",  # Next.js Local Dev
@@ -45,6 +51,8 @@ api_prefix = "/api/v1"
 app.include_router(public_router.router, prefix=api_prefix)
 app.include_router(assets_router.router, prefix=api_prefix)
 app.include_router(discovery_router.router, prefix=api_prefix)
+app.include_router(system_router.router, prefix=api_prefix)
+app.include_router(intelligence_router.router, prefix=api_prefix)
 
 
 @app.get("/", tags=["Health Check"], operation_id="health_check")

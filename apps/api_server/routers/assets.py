@@ -1,5 +1,4 @@
 # apps/api_server/routers/assets.py
-
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select

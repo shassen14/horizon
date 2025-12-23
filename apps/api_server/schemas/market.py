@@ -1,4 +1,5 @@
 # apps/api_server/schemas/history.py
+from typing import List
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
@@ -38,7 +39,7 @@ class VolatilityFeatures(BaseModel):
     bb_middle_20: float | None = None
     bb_lower_20: float | None = None
     bb_width_20: float | None = None
-    
+
 
 class VolumeFeatures(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -68,3 +69,12 @@ class HistoryDataPoint(BaseModel):
     close: float
     volume: int
     features: FeatureSet
+
+
+class MarketSnapshot(BaseModel):
+    symbol: str
+    price: float
+    change_1d: float | None = None
+    change_1d_pct: float | None = None
+    last_updated: datetime
+    sparkline: List[float]  # Simple list of recent closing prices
