@@ -10,6 +10,7 @@ from .alpaca import AlpacaConfig
 from .ingestion import IngestionConfig
 from .screener import ScreenerConfig
 from .features import FeatureConfig
+from .system import SystemConfig
 
 
 # Define Project Root
@@ -23,6 +24,7 @@ class Settings(BaseSettings):
     ingestion: IngestionConfig = IngestionConfig()
     screener: ScreenerConfig = ScreenerConfig()
     features: FeatureConfig = FeatureConfig()
+    system: SystemConfig = SystemConfig()
 
 
 # Singleton Instance

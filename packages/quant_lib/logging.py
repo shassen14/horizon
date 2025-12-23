@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 from loguru import logger as _logger  # Aliased to avoid conflict
+from packages.quant_lib.config import settings
 
 
 class LogManager:
@@ -32,7 +33,7 @@ class LogManager:
             log_file,
             rotation="10 MB",
             retention="7 days",
-            level="DEBUG",
+            level="DEBUG" if settings.system.debug else "INFO",
             serialize=True,
             enqueue=True,
         )
