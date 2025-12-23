@@ -208,7 +208,19 @@ class FeatureEngine:
 
         # Polars treats NaN and Null differently. We want to convert NaNs to Nulls.
         # This ensures Postgres gets NULL, which it handles correctly in aggregates.
-        df_clean = df.select([pl.col(c).fill_nan(None) for c in columns_to_insert])
+        exprs = []
+        for col_name in columns_to_insert:
+            dtype = df[col_name].dtype
+
+            # Only Floats support NaN.
+            # Integers (asset_id) and Datetimes (time) throws error if we check for NaN.
+            if dtype in (pl.Float64, pl.Float32):
+                exprs.append(pl.col(col_name).fill_nan(None))
+            else:
+                # Pass other columns (time, asset_id) through unchanged
+                exprs.append(pl.col(col_name))
+
+        df_clean = df.select(exprs)
 
         # Prepare records
         records = df_clean.to_dicts()
@@ -216,7 +228,7 @@ class FeatureEngine:
         if not records:
             return
 
-        # 2. Dynamic Chunk Sizing (The "Staff Engineer" Fix)
+        # 2. Dynamic Chunk Sizing
         # POSTGRES LIMIT: 32,767 (Signed 16-bit integer).
         # We use 30,000 to provide a safety buffer.
         POSTGRES_PARAM_LIMIT = 30_000
