@@ -30,3 +30,22 @@ async def get_db_session():
         raise
     finally:
         await session.close()
+
+
+@asynccontextmanager
+async def get_autocommit_connection():
+    """
+    Yields a raw SQLAlchemy AsyncConnection in AUTOCOMMIT mode.
+    Crucial for administrative tasks like VACUUM and CREATE DATABASE.
+    """
+    # Create a fresh engine specifically for this task
+    # We use isolation_level="AUTOCOMMIT" in the engine arguments
+    maintenance_engine = create_async_engine(
+        settings.db.URL, isolation_level="AUTOCOMMIT", echo=False
+    )
+
+    try:
+        async with maintenance_engine.connect() as conn:
+            yield conn
+    finally:
+        await maintenance_engine.dispose()
