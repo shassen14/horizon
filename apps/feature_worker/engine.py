@@ -206,8 +206,12 @@ class FeatureEngine:
         df_columns = set(df.columns)
         columns_to_insert = list(model_columns.intersection(df_columns))
 
+        # Polars treats NaN and Null differently. We want to convert NaNs to Nulls.
+        # This ensures Postgres gets NULL, which it handles correctly in aggregates.
+        df_clean = df.select([pl.col(c).fill_nan(None) for c in columns_to_insert])
+
         # Prepare records
-        records = df.select(columns_to_insert).to_dicts()
+        records = df_clean.to_dicts()
 
         if not records:
             return

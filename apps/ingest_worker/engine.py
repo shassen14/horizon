@@ -279,9 +279,11 @@ class IngestionEngine:
             batch_size = max(1, min(settings.ingestion.max_symbols, optimum_batch_size))
 
             # Sorted ensures determinism
-            group_asset_ids = sorted(group_asset_ids)
+            sorted_group_asset_ids = sorted(
+                group_asset_ids, key=lambda aid: self.active_assets_map[aid]
+            )
 
-            for i in range(0, len(group_asset_ids), batch_size):
+            for i in range(0, len(sorted_group_asset_ids), batch_size):
                 batch_ids = group_asset_ids[i : i + batch_size]
 
                 # Spawn Task
@@ -297,19 +299,44 @@ class IngestionEngine:
     async def _process_daily_batch(self, batch_ids, start_dt, end_dt):
         """Worker function for a single Daily batch."""
         async with self.concurrency_limiter:
+            # Create a short, readable representation of the batch
             batch_symbols = [self.active_assets_map[bid] for bid in batch_ids]
+
+            # Show the first 2 symbols and the total count for brevity
+            log_context = f"Batch ({batch_symbols[0]}... {len(batch_symbols)} total)"
+
+            # Log the "What" and "Why"
+            self.logger.info(
+                f"{log_context}: Fetching from {start_dt.date()} to {end_dt.date()}"
+            )
+
+            import time
+
+            fetch_start_time = time.time()
 
             # Rate Limit Logic
             async with self.limiter:
                 df = self.source.get_ohlcv_bars(batch_symbols, start_dt, end_dt)
 
-            if not df.is_empty():
-                count = await self._write_to_db(
-                    df, MarketDataDaily, Asset.last_market_data_daily_update
-                )
-                self.logger.info(
-                    f"Daily Batch: Wrote {count} rows for {len(batch_symbols)} symbols."
-                )
+            fetch_duration = time.time() - fetch_start_time
+
+            if df.is_empty():
+                self.logger.warning(f"{log_context}: No data returned from source.")
+                return
+
+            write_start_time = time.time()
+
+            count = await self._write_to_db(
+                df, MarketDataDaily, Asset.last_market_data_daily_update
+            )
+
+            write_duration = time.time() - write_start_time
+
+            self.logger.success(
+                f"{log_context}: Success. "
+                f"Wrote {count} rows. "
+                f"Fetch: {fetch_duration:.2f}s, Write: {write_duration:.2f}s"
+            )
 
     async def run_intraday_ingestion(self):
         self.logger.info("--- Phase 3: Intraday Ingestion (Concurrent) ---")
@@ -353,7 +380,11 @@ class IngestionEngine:
         # 3. Spawn Tasks
         tasks = []
         SYMBOL_BATCH_SIZE = 50
-        asset_ids = sorted(list(self.active_assets_map.keys()))  # Sort for consistency
+        # We sort the entire list of IDs based on their symbol alphabetically before creating batches.
+        asset_ids = sorted(
+            list(self.active_assets_map.keys()),
+            key=lambda aid: self.active_assets_map[aid],
+        )
 
         for i in range(0, len(asset_ids), SYMBOL_BATCH_SIZE):
             batch_ids = asset_ids[i : i + SYMBOL_BATCH_SIZE]

@@ -13,7 +13,7 @@ class IngestionConfig(EnvConfig):
     metadata_cache_hours: int = 24
 
     # Defaults
-    default_history_days: int = 5475  # 15 years
+    default_history_days: int = 3653  # 10 years
 
     # Intraday
     intraday_timeframe_unit: Literal["Minute", "Hour"] = "Minute"
