@@ -40,13 +40,4 @@ class DatabaseOptimizer:
                 self.logger.info(f"Vacuuming {table_name}...")
                 await conn.execute(text(f'VACUUM ANALYZE "{table_name}";'))
 
-            # Reindex Features
-            feat_table = FeaturesDaily.__tablename__
-            self.logger.info(f"Reindexing {feat_table} (Concurrently)...")
-            try:
-                await conn.execute(text(f"REINDEX TABLE CONCURRENTLY {feat_table};"))
-                self.logger.success("Reindex complete.")
-            except Exception as e:
-                self.logger.error(f"Reindex failed: {e}")
-
         self.logger.success("Maintenance complete.")
