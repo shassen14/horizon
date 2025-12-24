@@ -1,5 +1,6 @@
 # apps/api_server/routers/market.py
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -7,16 +8,17 @@ from sqlalchemy import select, desc
 # Absolute imports are now clean and predictable
 from apps.api_server.core.limiter import limiter
 from apps.api_server.dependencies.database import get_session
+from apps.api_server.schemas.enums import MarketInterval
 from apps.api_server.schemas.market import (
     HistoryDataPoint,
-    FeatureSet,
-    TrendFeatures,
-    MomentumFeatures,
-    VolatilityFeatures,
-    VolumeFeatures,
     MarketSnapshot,
 )
-from packages.database.models import Asset, MarketDataDaily, FeaturesDaily
+from apps.api_server.services.market_data import MarketDataService
+from packages.database.models import (
+    Asset,
+    MarketDataDaily,
+)
+
 
 router = APIRouter(prefix="/public/market", tags=["Market Data"])
 
@@ -28,79 +30,37 @@ router = APIRouter(prefix="/public/market", tags=["Market Data"])
 )
 @limiter.limit("100/minute")
 async def get_market_history(
-    request: Request,  # The decorator needs this
+    request: Request,
     symbol: str,
-    session: AsyncSession = Depends(get_session),
+    interval: MarketInterval = Query(
+        MarketInterval.DAY_1, description="Aggregation interval"
+    ),
+    start_date: Optional[datetime] = Query(None, description="Start date (UTC)"),
+    end_date: Optional[datetime] = Query(None, description="End date (UTC)"),
     limit: int = Query(default=1000, gt=0, le=5000),
+    session: AsyncSession = Depends(get_session),
 ) -> List[HistoryDataPoint]:
 
-    # 1. Fast Lookup
-    asset_id = await session.scalar(
-        select(Asset.id).where(Asset.symbol == symbol.upper())
+    # 1. Initialize Service
+    service = MarketDataService(session)
+
+    # 2. Delegate Logic
+    data = await service.get_history(
+        symbol=symbol,
+        interval=interval,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
     )
 
-    if not asset_id:
+    if not data:
+        # We return 404 only if it's truly empty/invalid symbol.
+        # If date range is just empty, returning [] is technically valid but 404 is friendlier for UI
         raise HTTPException(
-            status_code=404, detail=f"Asset symbol '{symbol}' not found."
+            status_code=404, detail=f"No data found for {symbol} with params provided."
         )
 
-    # 2. Optimized Query (SQLAlchemy Core)
-    stmt = (
-        select(MarketDataDaily.__table__, FeaturesDaily.__table__)
-        .join(
-            FeaturesDaily.__table__,
-            (FeaturesDaily.asset_id == MarketDataDaily.asset_id)
-            & (FeaturesDaily.time == MarketDataDaily.time),
-        )
-        .where(MarketDataDaily.asset_id == asset_id)
-        .order_by(desc(MarketDataDaily.time))
-        .limit(limit)
-    )
-
-    result = await session.execute(stmt)
-    # Fetch as mappings (dicts) to avoid overhead of SQLAlchemy Objects
-    rows = result.mappings().all()
-
-    if not rows:
-        raise HTTPException(status_code=404, detail=f"No history found for {symbol}")
-
-    # 3. Construct Pydantic Models
-    # Since we defined `model_config = ConfigDict(from_attributes=True)`
-    # in our schemas, we can pass these dictionaries directly.
-    response_data = []
-
-    for row in rows:
-        # Pydantic v2 is smart enough to extract fields from a dict
-        # even if they are flat in the row but nested in the schema.
-
-        # However, for cleaner explicit nesting, we construct the sub-objects:
-        try:
-            # Construct nested FeatureSet
-            feature_set = FeatureSet(
-                trend=TrendFeatures.model_validate(row),
-                momentum=MomentumFeatures.model_validate(row),
-                volatility=VolatilityFeatures.model_validate(row),
-                volume=VolumeFeatures.model_validate(row),
-            )
-
-            # Construct main point
-            point = HistoryDataPoint(
-                time=row["time"],
-                open=row["open"],
-                high=row["high"],
-                low=row["low"],
-                close=row["close"],
-                volume=row["volume"],
-                features=feature_set,
-            )
-            response_data.append(point)
-
-        except Exception as e:
-            # Log this in production
-            print(f"Skipping row due to validation error: {e}")
-            continue
-
-    return response_data
+    return data
 
 
 @router.get(

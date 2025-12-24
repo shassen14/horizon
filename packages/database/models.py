@@ -3,6 +3,7 @@
 from typing import Type
 from sqlalchemy import (
     Column,
+    Index,
     Integer,
     PrimaryKeyConstraint,
     String,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     BigInteger,
     ForeignKey,
+    text,
 )
 from sqlalchemy.orm import declarative_base
 
@@ -46,6 +48,10 @@ class MarketDataDaily(Base):
     volume = Column(BigInteger)
     vwap = Column(Float)
     trade_count = Column(BigInteger)
+    __table_args__ = (
+        # 1. Optimizes: "Get history for Symbol X sorted by Time"
+        Index("idx_market_data_daily_asset_time", "asset_id", text("time DESC")),
+    )
 
 
 # --- Abstract Base for Intraday to reduce code duplication ---
@@ -67,6 +73,11 @@ class IntradayBase(Base):
 # You can add more here easily (e.g., MarketData1Min, MarketData1Hour)
 class MarketData5Min(IntradayBase):
     __tablename__ = "market_data_5min"
+    # Note: IntradayBase might define columns, but we define args here on the concrete class
+    __table_args__ = (
+        # 1. Optimizes: "Get history for Symbol X sorted by Time"
+        Index("idx_market_data_5min_asset_time", "asset_id", text("time DESC")),
+    )
 
 
 # --- Dynamic Dispatcher ---
@@ -142,7 +153,10 @@ class FeaturesDaily(Base):
     # rs_spy_normalized = Column(Float)
 
     __table_args__ = (
+        # Critical for Upserts
         PrimaryKeyConstraint("time", "asset_id", name="pk_features_daily"),
+        # Critical the Performance Index
+        Index("idx_features_daily_asset_time", "asset_id", text("time DESC")),
     )
 
 

@@ -16,6 +16,18 @@ class Environment(str, Enum):
     STAGING = "staging"
 
 
+# Market
+class MarketInterval(str, Enum):
+    # We map these to Postgres Interval strings
+    MINUTE_5 = "5m"
+    MINUTE_15 = "15m"
+    MINUTE_30 = "30m"
+    HOUR_1 = "1h"
+    HOUR_4 = "4h"
+    DAY_1 = "1d"
+    WEEK_1 = "1w"
+
+
 # Regime
 class RegimeType(str, Enum):
     BULL = "Bull"  # Trending Up
