@@ -36,11 +36,24 @@ class FeatureFactory:
         volatility_exprs = self._get_volatility_expressions()
         volume_exprs = self._get_volume_expressions()
 
+        # 2. Advanced Statistics & Calendar
+        stats_exprs = self._get_statistical_expressions()
+        calendar_exprs = self._get_calendar_expressions()
+        structure_exprs = self._get_structural_expressions()
+
         # 2. Apply them in a single optimized pass
         # Note: We filter out None values in case TA-Lib is missing
         all_exprs = [
             e
-            for e in (trend_exprs + momentum_exprs + volatility_exprs + volume_exprs)
+            for e in (
+                trend_exprs
+                + momentum_exprs
+                + volatility_exprs
+                + volume_exprs
+                + stats_exprs
+                + calendar_exprs
+                + structure_exprs
+            )
             if e is not None
         ]
 
@@ -199,26 +212,119 @@ class FeatureFactory:
         Returns expressions for:
         - ADV 20 (Average Daily Volume)
         - Relative Volume
+        - OBV (Requires TA-Lib)
+        - MFI (Requires TA-Lib)
         """
         exprs = []
 
-        obv_expr = pl.map_batches(
-            [pl.col("close"), pl.col("volume")],
-            lambda s: ta.OBV(s[0].to_numpy(), s[1].to_numpy().astype(float)),
-            return_dtype=pl.Float64,
-        ).alias("obv")
-        exprs.append(obv_expr)
+        # --- 1. Basic Volume Features (No TA-Lib needed) ---
 
         # Average Daily Volume (20 days)
         adv_20 = pl.col("volume").rolling_mean(window_size=20).alias("volume_adv_20")
         exprs.append(adv_20)
 
         # Relative Volume (Current Vol / ADV)
-        # Use pl.when to avoid division by zero
         rvol = (
             pl.when(adv_20 > 0).then(pl.col("volume") / adv_20).otherwise(None)
         ).alias("relative_volume")
         exprs.append(rvol)
+
+        # --- 2. Advanced Volume Features (TA-Lib required) ---
+        if self.talib_available:
+
+            # On-Balance Volume (OBV)
+            # Volume must be cast to float for TA-Lib
+            obv_expr = pl.map_batches(
+                [pl.col("close"), pl.col("volume")],
+                lambda s: ta.OBV(
+                    s[0].to_numpy(zero_copy_only=False),
+                    s[1].to_numpy(zero_copy_only=False).astype(float),
+                ),
+                return_dtype=pl.Float64,
+            ).alias("obv")
+            exprs.append(obv_expr)
+
+            # Money Flow Index (MFI)
+            # MFI requires High, Low, Close, Volume
+            mfi_expr = pl.map_batches(
+                [pl.col("high"), pl.col("low"), pl.col("close"), pl.col("volume")],
+                lambda s: ta.MFI(
+                    s[0].to_numpy(zero_copy_only=False),
+                    s[1].to_numpy(zero_copy_only=False),
+                    s[2].to_numpy(zero_copy_only=False),
+                    s[3].to_numpy(zero_copy_only=False).astype(float),
+                    timeperiod=self.settings.mfi_period,
+                ),
+                return_dtype=pl.Float64,
+            ).alias(f"mfi_{self.settings.mfi_period}")
+            exprs.append(mfi_expr)
+
+        return exprs
+
+    def _get_statistical_expressions(self) -> List[pl.Expr]:
+        """
+        Returns statistical features:
+        - Rolling Skew (20)
+        - Rolling Kurtosis (20)
+        - Z-Score of Close (Distance from Mean / Std)
+        """
+        exprs = []
+
+        # Polars has native rolling_skew (approx) and rolling_std
+        # Window 20 (approx 1 month) and 60 (approx 1 quarter)
+
+        for w in [20, 60]:
+            # Skewness (Risk of crash)
+            exprs.append(pl.col("close").rolling_skew(window_size=w).alias(f"skew_{w}"))
+
+            # Z-Score: (Price - SMA) / StdDev
+            # This is CRITICAL for ML. It tells the model "How many sigmas away is price?"
+            sma = pl.col("close").rolling_mean(window_size=w)
+            std = pl.col("close").rolling_std(window_size=w)
+            z_score = ((pl.col("close") - sma) / std).alias(f"zscore_{w}")
+            exprs.append(z_score)
+
+        return exprs
+
+    def _get_calendar_expressions(self) -> List[pl.Expr]:
+        """Returns cyclic calendar features."""
+        return [
+            pl.col("time").dt.weekday().alias("day_of_week"),  # 1=Mon, 7=Sun
+            pl.col("time").dt.month().alias("month_of_year"),
+            pl.col("time").dt.day().alias("day_of_month"),
+            # Quarter helps detect earnings season cyclicity
+            pl.col("time").dt.quarter().alias("quarter"),
+        ]
+
+    def _get_structural_expressions(self) -> List[pl.Expr]:
+        """
+        Returns Price Structure features (Distance from High/Low).
+        Dynamic based on config.structural_periods.
+        """
+        exprs = []
+
+        for p in self.settings.structural_periods:  # e.g. [252]
+            # 1. Rolling High
+            rolling_high = pl.col("high").rolling_max(window_size=p)
+
+            # Calculate % Distance: (Close - High) / High
+            # Result is negative (e.g., -0.05 means 5% below high)
+            high_expr = ((pl.col("close") - rolling_high) / rolling_high).alias(
+                f"high_{p}_pct"
+            )
+
+            exprs.append(high_expr)
+
+            # 2. Rolling Low
+            rolling_low = pl.col("low").rolling_min(window_size=p)
+
+            # Calculate % Distance: (Close - Low) / Low
+            # Result is positive (e.g., 0.10 means 10% above low)
+            low_expr = ((pl.col("close") - rolling_low) / rolling_low).alias(
+                f"low_{p}_pct"
+            )
+
+            exprs.append(low_expr)
 
         return exprs
 
