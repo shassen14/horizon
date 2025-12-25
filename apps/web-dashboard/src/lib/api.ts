@@ -183,19 +183,34 @@ export async function getMarketLeaders(
 
 // Intelligence API call
 export async function getMarketRegime(): Promise<MarketRegime | null> {
+  // 1. Define URL explicitly for logging
+  const url = `${process.env.NEXT_PUBLIC_API_URL}/public/intelligence/regime`;
+
   try {
-    const res = await fetch(
-      `${API_BASE_URL}/api/v1/public/intelligence/regime`,
-      {
-        cache: "no-store",
-      }
-    );
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        "User-Agent": "Horizon-Dashboard/1.0",
+      },
+    });
+
+    // 2. Check for HTTP Errors FIRST
     if (!res.ok) {
-      throw new Error("Failed to fetch market regime");
+      const errorBody = await res.text();
+
+      // Log critical details to the Vercel Server Logs
+      console.error(`[API Error] Status: ${res.status}`);
+      console.error(`[API Error] URL: ${url}`);
+      console.error(`[API Error] Body Snippet: ${errorBody.substring(0, 500)}`); // First 500 chars
+
+      throw new Error(`API responded with status ${res.status}`);
     }
-    return res.json();
+
+    // 3. Parse JSON safely
+    return await res.json();
   } catch (error) {
-    console.error("getMarketRegime error:", error);
+    // This catches network errors (DNS, Timeout) AND the error thrown above
+    console.error("[getMarketRegime] Final Error:", error);
     return null;
   }
 }

@@ -32,6 +32,10 @@ async def get_market_regime(
     Currently implements a Heuristic Logic (v1): SPY Trend + Volatility.
     """
 
+    # TODO: Delete
+    print(f"DEBUG ORIGIN: {request.headers.get('origin')}")
+    print(f"DEBUG USER-AGENT: {request.headers.get('user-agent')}")
+
     # 1. Fetch Benchmark Data (SPY)
     # We need the latest price and features for SPY
     stmt = (
