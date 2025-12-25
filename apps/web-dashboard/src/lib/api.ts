@@ -184,7 +184,7 @@ export async function getMarketLeaders(
 // Intelligence API call
 export async function getMarketRegime(): Promise<MarketRegime | null> {
   // 1. Define URL explicitly for logging
-  const url = `${process.env.NEXT_PUBLIC_API_URL}/public/intelligence/regime`;
+  const url = `${API_BASE_URL}/api/v1/public/intelligence/regime`;
 
   try {
     const res = await fetch(url, {
