@@ -11,7 +11,13 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Get Market History */
+    /**
+     * Get Market History
+     * @description Robust Time-Series Endpoint.
+     *     - If start/end provided: Returns specific range (Oldest -> Newest).
+     *     - If NO dates provided: Returns LATEST 'limit' points (Oldest -> Newest).
+     *     - Always strictly typed and validated.
+     */
     get: operations["get_symbol_history"];
     put?: never;
     post?: never;
@@ -231,6 +237,11 @@ export interface components {
       volume: number;
       features: components["schemas"]["FeatureSet"];
     };
+    /**
+     * MarketInterval
+     * @enum {string}
+     */
+    MarketInterval: "5m" | "15m" | "30m" | "1h" | "4h" | "1d" | "1w";
     /** MarketRegime */
     MarketRegime: {
       /**
@@ -398,6 +409,13 @@ export interface operations {
   get_symbol_history: {
     parameters: {
       query?: {
+        /** @description Aggregation interval */
+        interval?: components["schemas"]["MarketInterval"];
+        /** @description Filter start date (UTC, inclusive) */
+        start_date?: string | null;
+        /** @description Filter end date (UTC, inclusive) */
+        end_date?: string | null;
+        /** @description Max data points to return */
         limit?: number;
       };
       header?: never;

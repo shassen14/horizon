@@ -21,6 +21,29 @@ import {
 import { HistoryDataPoint } from "@/lib/api";
 import { OhlcData, VolumeData } from "@/types/chart";
 import { INDICATOR_CONTROLS, ALL_SERIES_CONFIG } from "@/config/indicators";
+import { cleanData } from "@/lib/utils";
+
+// Helper to remove duplicates and sort by time
+function cleanSeriesData<T extends { time: UTCTimestamp }>(data: T[]): T[] {
+  // 1. Sort by time ASC
+  const sorted = [...data].sort(
+    (a, b) => (a.time as number) - (b.time as number)
+  );
+
+  // 2. Deduplicate
+  const unique: T[] = [];
+  const timeSet = new Set<number>();
+
+  for (const item of sorted) {
+    const t = item.time as number;
+    if (!timeSet.has(t)) {
+      timeSet.add(t);
+      unique.push(item);
+    }
+  }
+
+  return unique;
+}
 
 interface FinancialChartProps {
   ohlcData: OhlcData[];
@@ -146,9 +169,17 @@ export function FinancialChart({
   // Data Updates (OHLC & Volume)
   useEffect(() => {
     if (candlestickSeriesRef.current) {
-      candlestickSeriesRef.current.setData(ohlcData as CandlestickData[]);
+      // 1. Clean and Set Data (Existing logic)
+      const cleanOhlc = cleanSeriesData(ohlcData as any[]);
+      candlestickSeriesRef.current.setData(cleanOhlc as CandlestickData[]);
+
+      // --- THE FIX: Auto-Fit Content ---
+      // This forces the chart to zoom out/in to show exactly the range of data we just loaded.
+      if (chartRef.current) {
+        chartRef.current.timeScale().fitContent();
+      }
     }
-  }, [ohlcData]);
+  }, [ohlcData]); // This triggers whenever the parent passes new data (e.g. interval change)
 
   useEffect(() => {
     if (volumeSeriesRef.current && ohlcData.length > 0) {
@@ -160,7 +191,10 @@ export function FinancialChart({
             ? "rgba(38, 166, 154, 0.5)"
             : "rgba(239, 83, 80, 0.5)",
       }));
-      volumeSeriesRef.current.setData(coloredVolumeData as HistogramData[]);
+
+      // FIX: Clean data before setting
+      const cleanVol = cleanSeriesData(coloredVolumeData as any[]);
+      volumeSeriesRef.current.setData(cleanVol as HistogramData[]);
     }
   }, [ohlcData, volumeData]);
 
@@ -168,60 +202,72 @@ export function FinancialChart({
   useEffect(() => {
     if (!technicalsData || technicalsData.length === 0) return;
 
-    // Loop through the UI CONTROLS (User Intent)
     INDICATOR_CONTROLS.forEach((control) => {
       const isVisible = selectedIndicators[control.id];
 
-      // For each control, update ALL its associated series (e.g. BB has 3 series)
       control.series.forEach((seriesDef) => {
         const series = indicatorsRef.current[seriesDef.key];
         if (!series) return;
 
         if (isVisible) {
-          // Map and Transform Data
+          // 1. Map to Raw Data or Null
           const rawData = technicalsData.map((d) => {
-            // This tells TS: "It's an object where keys are strings, and values are numbers or edge cases."
+            // STRICT TYPING: Treat features as a nested dictionary of numbers/nulls
+            // This replaces 'any' with a safe, indexable type.
             const features = d.features as Record<
               string,
               Record<string, number | null | undefined>
             >;
+
             const [category, field] = seriesDef.apiPath.split(".");
 
+            // Safely access the value
             const val = features[category]?.[field];
 
-            // If val is missing or invalid, bail out early.
-            // This prevents the "possibly null" error later in the code.
+            // GUARD CLAUSE: Ensure value is a finite number
             if (typeof val !== "number" || !isFinite(val)) {
               return null;
             }
 
-            // Base data point object
-            const point: HistogramData | LineData = {
-              time: (new Date(d.time).getTime() / 1000) as UTCTimestamp,
-              value: val as number,
-            };
+            // Construct the base point
+            const time = (new Date(d.time).getTime() / 1000) as UTCTimestamp;
 
+            // Handle Histogram specific logic (Colors)
             if (
               seriesDef.type === "Histogram" &&
               seriesDef.colorStrategy === "sign"
             ) {
-              // Use standard candlestick colors: Green for positive, Red for negative
-              point.color = val >= 0 ? "#26a69a" : "#ef5350";
+              const point: HistogramData = {
+                time,
+                value: val,
+                color: val >= 0 ? "#26a69a" : "#ef5350",
+              };
+              return point;
             }
 
+            // Default Line/Histogram logic
+            const point: LineData | HistogramData = {
+              time,
+              value: val,
+            };
             return point;
           });
 
-          // 2. Filter out the nulls
-          // The type predicate '(p): p is ...' ensures the resulting array is clean types
-          const cleanData = rawData
-            .filter((p): p is HistogramData | LineData => p !== null)
-            .sort((a, b) => (a.time as number) - (b.time as number));
+          // 2. Filter Nulls (Type Guard)
+          const validData = rawData.filter(
+            (p): p is HistogramData | LineData => p !== null
+          );
 
-          series.setData(cleanData);
+          // 3. Sort & Deduplicate (Fixes assertion errors)
+          const finalData = cleanData(validData);
+
+          // 4. Set Data
+          // We cast to 'any' here only because setData signature varies slightly
+          // between Line/Histogram series in TS, but the data shape is compatible.
+          series.setData(finalData as any);
           series.applyOptions({ visible: true });
         } else {
-          series.setData([]); // Clear memory
+          series.setData([]);
           series.applyOptions({ visible: false });
         }
       });

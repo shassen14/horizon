@@ -3,11 +3,16 @@
 import { components } from "./api-client"; // Import the auto-generated types
 
 // System
+// Enum
 export type SystemHealth = components["schemas"]["SystemHealth"];
 export type Environment = components["schemas"]["Environment"];
+// Return Type
 export type SystemStatus = components["schemas"]["SystemStatus"];
 
 // Market
+// Enum
+export type MarketInterval = components["schemas"]["MarketInterval"];
+// Return Type
 export type HistoryDataPoint = components["schemas"]["HistoryDataPoint"];
 export type FeatureSet = components["schemas"]["FeatureSet"];
 export type TrendFeatures = components["schemas"]["TrendFeatures"];
@@ -18,10 +23,10 @@ export type MarketSnapshot = components["schemas"]["MarketSnapshot"];
 
 // Asset
 export type AssetInfo = components["schemas"]["AssetInfo"];
+export type AssetDetail = components["schemas"]["AssetDetail"];
 
 // Discovery
-export type ScreenerResult = components["schemas"]["ScreenerResult"];
-
+// Enum
 export type MarketLeadersSortBy =
   | "relative_volume"
   | "rsi_14"
@@ -38,10 +43,14 @@ export interface MarketLeadersParams {
   minAvgVolume: number;
   limit: number;
 }
+// Return Type
+export type ScreenerResult = components["schemas"]["ScreenerResult"];
 
 // Intelligence
+// Enum
 export type RegimeType = components["schemas"]["RegimeType"];
 export type RiskLevel = components["schemas"]["RiskLevel"];
+// Return Type
 export type MarketRegime = components["schemas"]["MarketRegime"];
 
 // URL to access api
@@ -64,9 +73,21 @@ export async function getSystemStatus(): Promise<SystemStatus | null> {
 // Market API Call
 export async function getHistory(
   symbol: string,
-  limit: number = 1000
+  limit: number = 1000,
+  interval: MarketInterval = "1d",
+  startDate?: Date,
+  endDate?: Date
 ): Promise<HistoryDataPoint[]> {
-  const url = `${API_BASE_URL}/api/v1/public/market/history/${symbol}?limit=${limit}`;
+  const params = new URLSearchParams({
+    limit: limit.toString(),
+    interval: interval,
+  });
+
+  if (startDate) params.append("start_date", startDate.toISOString());
+  if (endDate) params.append("end_date", endDate.toISOString());
+
+  const url = `${API_BASE_URL}/api/v1/public/market/history/${symbol}?${params.toString()}`;
+
   const res = await fetch(url, {
     // Revalidate data every 5 minutes
     next: { revalidate: 300 },
@@ -107,6 +128,20 @@ export async function searchAssets(
     throw new Error("Failed to search assets");
   }
   return res.json();
+}
+
+export async function getAssetDetail(
+  symbol: string
+): Promise<AssetDetail | null> {
+  const url = `${API_BASE_URL}/api/v1/public/assets/${symbol}`;
+  try {
+    const res = await fetch(url, { next: { revalidate: 3600 } }); // Cache for 1 hour
+    if (!res.ok) return null;
+    return res.json();
+  } catch (error) {
+    console.error("getAssetDetail error:", error);
+    return null;
+  }
 }
 
 // Discovery API Call
