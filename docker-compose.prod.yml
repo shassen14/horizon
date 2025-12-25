@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  # --- 1. The Backend API ---
+  api:
+    build: .
+    container_name: horizon-api
+    restart: always
+    command: uvicorn apps.api_server.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    env_file: .env # Reads your existing .env
+    volumes:
+      # Mount logs to the Host so they survive container restarts
+      # TODO: Consider mounting to NAS path instead
+      - ./logs:/app/logs
+    depends_on:
+      - scheduler
+
+  # --- 2. The Scheduler (Workers) ---
+  scheduler:
+    build: .
+    container_name: horizon-scheduler
+    restart: always
+    command: python apps/scheduler/main.py
+    env_file: .env
+    volumes:
+      - ./logs:/app/logs
+# Note: DB is external so no db service
