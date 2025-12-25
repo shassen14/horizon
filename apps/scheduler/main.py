@@ -25,7 +25,7 @@ async def job_ingest_intraday():
         limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
         engine_logger = log_manager.get_logger("ingest-intraday")
 
-        engine = IngestionEngine(source, settings, engine_logger, limiter)
+        engine = IngestionEngine(source, engine_logger, limiter)
         await engine.run_intraday_ingestion()
     except Exception as e:
         logger.exception(f"Intraday Job Failed: {e}")
@@ -38,7 +38,7 @@ async def job_daily_routine():
         source = AlpacaSource()
         limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
         ingest_logger = log_manager.get_logger("ingest-daily")
-        ingest_engine = IngestionEngine(source, settings, ingest_logger, limiter)
+        ingest_engine = IngestionEngine(source, ingest_logger, limiter)
 
         # Run Metadata & Daily
         await ingest_engine.run_metadata_sync()
@@ -46,7 +46,7 @@ async def job_daily_routine():
 
         # 2. Features (Runs immediately after ingestion finishes)
         feat_logger = log_manager.get_logger("feature-daily")
-        feature_engine = FeatureEngine(settings, feat_logger)
+        feature_engine = FeatureEngine(feat_logger)
         await feature_engine.run()
 
         logger.success("✅ Daily Routine Complete.")
