@@ -15,6 +15,16 @@ services:
     depends_on:
       - scheduler
 
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: horizon-tunnel
+    restart: always
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - api
+
   # --- 2. The Scheduler (Workers) ---
   scheduler:
     build: .
