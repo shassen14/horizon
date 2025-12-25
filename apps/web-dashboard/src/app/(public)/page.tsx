@@ -16,14 +16,11 @@ import { TopMoversSection } from "@/components/dashboard/TopMoversSection";
 
 export default async function HomePage() {
   // Fetch all data in parallel for a fast page load
-  // const [systemStatus, marketRegime, marketSnapshots] = await Promise.all([
-  //   getSystemStatus(),
-  //   getMarketRegime(),
-  //   getMarketSnapshots(["SPY", "QQQ", "IWM"]),
-  // ]);
-  const systemStatus = await getSystemStatus();
-  const marketRegime = await getMarketRegime();
-  const marketSnapshots = await getMarketSnapshots(["SPY", "QQQ", "IWM"]);
+  const [systemStatus, marketRegime, marketSnapshots] = await Promise.all([
+    getSystemStatus(),
+    getMarketRegime(),
+    getMarketSnapshots(["SPY", "QQQ", "IWM"]),
+  ]);
 
   return (
     <div className="container mx-auto p-4 space-y-8">
