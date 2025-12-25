@@ -8,17 +8,23 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 1. System Dependencies (GCC/Make needed for TA-Lib)
+# 1. System Dependencies
+# CHANGE 1: Added 'autotools-dev' to get modern config.guess scripts
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     wget \
     git \
+    autotools-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Install TA-Lib C Library (Source Build for ARM/Pi compatibility)
+# 2. Install TA-Lib C Library (Source Build)
+# CHANGE 2: Copy the fresh config scripts from /usr/share/misc into ta-lib
+# before running configure. This lets it recognize the Raspberry Pi 5 (aarch64).
 RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
     tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cp /usr/share/misc/config.guess ta-lib/ && \
+    cp /usr/share/misc/config.sub ta-lib/ && \
     cd ta-lib && \
     ./configure --prefix=/usr && \
     make && \
@@ -34,7 +40,6 @@ COPY requirements.in .
 COPY packages/ ./packages/
 
 # 5. Install Dependencies & Local Packages
-# We assume requirements.in includes 'TA-Lib' (the wrapper)
 RUN uv pip install --system -r requirements.in
 RUN uv pip install --system -e ./packages/database
 RUN uv pip install --system -e ./packages/quant_lib
@@ -43,5 +48,5 @@ RUN uv pip install --system -e ./packages/ml_core
 # 6. Copy Application Code
 COPY apps/ ./apps/
 
-# Default command (will be overridden by docker-compose)
+# Default command
 CMD ["python", "apps/api_server/main.py"]
