@@ -13,7 +13,7 @@ from apps.feature_worker.engine import FeatureEngine
 from aiolimiter import AsyncLimiter
 
 # Initialize Logger
-log_manager = LogManager(settings, "scheduler")
+log_manager = LogManager("scheduler")
 logger = log_manager.get_logger("main")
 
 
