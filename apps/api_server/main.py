@@ -26,16 +26,10 @@ app = FastAPI(
     version=settings.system.version,
     debug=settings.system.debug,
 )
-# Define allowed origins (who can talk to this API?)
-origins = [
-    "http://localhost:3000",  # Next.js Local Dev
-    "http://127.0.0.1:3000",  # Alternative Local Dev
-    # Add your Vercel URL here later: e.g. "https://horizon-dashboard.vercel.app"
-]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # List of allowed origins
+    allow_origins=settings.system.allowed_origins_list,  # List of allowed origins
     allow_credentials=True,  # Allow cookies/auth headers
     allow_methods=["*"],  # Allow all methods (GET, POST, PUT, DELETE)
     allow_headers=["*"],  # Allow all headers
