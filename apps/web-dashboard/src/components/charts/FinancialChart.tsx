@@ -68,7 +68,19 @@ export function FinancialChart({
         horzLines: { color: "#e1e1e1" },
       },
       rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.3 } }, // Reserve bottom 30% for oscillators
-      timeScale: { timeVisible: true, secondsVisible: false },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+
+        // Prevent scrolling past the first data point (Left)
+        fixLeftEdge: true,
+
+        // Prevent scrolling past the last data point (Right)
+        fixRightEdge: true,
+
+        // Prevent zooming out so far that bars become invisible or negative width
+        minBarSpacing: 0.5,
+      },
     });
     chartRef.current = chart;
 
