@@ -20,7 +20,7 @@ interface ChartSectionProps {
 // --- CONFIG: Define the Auto-Switch Logic ---
 const INTERVAL_MAPPING: Record<TimeRange, MarketInterval> = {
   "1D": "5m",
-  "1W": "5m",
+  "1W": "1h",
   "1M": "1d",
   "3M": "1d",
   YTD: "1d",
