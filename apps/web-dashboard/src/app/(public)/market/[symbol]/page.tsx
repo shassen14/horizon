@@ -1,9 +1,10 @@
 // apps/web-dashboard/src/app/(public)/market/[symbol]/page.tsx
 
-import { getHistory, getAssetDetail } from "@/lib/api"; // Import new function
+import { getHistory, getAssetDetail } from "@/lib/api";
 import { FeatureTable } from "@/components/business/FeatureTable";
 import { ChartSection } from "@/components/charts/ChartSection";
-import { KeyStatistics } from "@/components/market/KeyStatistics"; // We will create this next
+import { KeyStatistics } from "@/components/market/KeyStatistics";
+import { WatchlistButton } from "@/components/market/WatchlistButton";
 import { notFound } from "next/navigation";
 
 export default async function StockDetailPage({
@@ -31,7 +32,10 @@ export default async function StockDetailPage({
   return (
     <div className="container mx-auto p-4 space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">{symbol}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold">{symbol}</h1>
+          <WatchlistButton symbol={symbol} />
+        </div>
         <p className="text-muted-foreground">{assetDetail.name}</p>
       </div>
 

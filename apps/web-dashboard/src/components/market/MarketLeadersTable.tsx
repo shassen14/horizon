@@ -16,6 +16,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal } from "lucide-react";
+import { WatchlistButton } from "@/components/market/WatchlistButton";
 
 interface MarketLeadersTableProps {
   filters: MarketLeadersParams;
@@ -57,6 +58,7 @@ export function MarketLeadersTable({ filters }: MarketLeadersTableProps) {
       <Table>
         <TableHeader className="bg-slate-50">
           <TableRow>
+            <TableHead className="w-[40px]"></TableHead>
             <TableHead className="w-[60px]">Rank</TableHead>
             <TableHead>Symbol</TableHead>
             <TableHead>Price</TableHead>
@@ -82,6 +84,9 @@ export function MarketLeadersTable({ filters }: MarketLeadersTableProps) {
                 key={stock.symbol}
                 className="hover:bg-slate-50/50 transition-colors"
               >
+                <TableCell>
+                  <WatchlistButton symbol={stock.symbol} />
+                </TableCell>
                 <TableCell className="font-medium text-slate-500">
                   #{stock.rank}
                 </TableCell>
