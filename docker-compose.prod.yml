@@ -14,6 +14,8 @@ services:
       - ./logs:/app/logs
     depends_on:
       - scheduler
+    networks:
+      - horizon_net
 
   tunnel:
     image: cloudflare/cloudflared:latest
@@ -24,6 +26,8 @@ services:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - api
+    networks:
+      - horizon_net
 
   # --- 2. The Scheduler (Workers) ---
   scheduler:
@@ -35,3 +39,7 @@ services:
     volumes:
       - ./logs:/app/logs
 # Note: DB is external so no db service
+
+networks:
+  horizon_net:
+    driver: bridge
