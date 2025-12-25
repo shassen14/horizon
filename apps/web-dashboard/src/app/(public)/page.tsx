@@ -1,5 +1,9 @@
 // apps/web-dashboard/src/app/(public)/page.tsx
 
+// This tells Next.js to opt out of Static Generation for this page.
+// It resolves the "Dynamic server usage" build error.
+export const dynamic = "force-dynamic";
+
 import {
   getSystemStatus,
   getMarketRegime,
