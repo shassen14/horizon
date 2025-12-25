@@ -1,14 +1,15 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { HistogramData, LineData } from "lightweight-charts";
+import { Time } from "lightweight-charts";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Generic helper to Sort and Deduplicate chart data
-export function cleanData<T extends LineData | HistogramData>(data: T[]): T[] {
-  // 1. Sort ascending by time
+// T must just be an object with a 'time' property of type UTCTimestamp.
+// It doesn't care if it has 'value', 'open', 'color', etc.
+export function cleanData<T extends { time: Time }>(data: T[]): T[] {
+  // 1. Sort by time ASC
   const sorted = [...data].sort(
     (a, b) => (a.time as number) - (b.time as number)
   );

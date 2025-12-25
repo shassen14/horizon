@@ -23,28 +23,6 @@ import { OhlcData, VolumeData } from "@/types/chart";
 import { INDICATOR_CONTROLS, ALL_SERIES_CONFIG } from "@/config/indicators";
 import { cleanData } from "@/lib/utils";
 
-// Helper to remove duplicates and sort by time
-function cleanSeriesData<T extends { time: UTCTimestamp }>(data: T[]): T[] {
-  // 1. Sort by time ASC
-  const sorted = [...data].sort(
-    (a, b) => (a.time as number) - (b.time as number)
-  );
-
-  // 2. Deduplicate
-  const unique: T[] = [];
-  const timeSet = new Set<number>();
-
-  for (const item of sorted) {
-    const t = item.time as number;
-    if (!timeSet.has(t)) {
-      timeSet.add(t);
-      unique.push(item);
-    }
-  }
-
-  return unique;
-}
-
 interface FinancialChartProps {
   ohlcData: OhlcData[];
   volumeData: VolumeData[];
@@ -170,11 +148,10 @@ export function FinancialChart({
   useEffect(() => {
     if (candlestickSeriesRef.current) {
       // 1. Clean and Set Data (Existing logic)
-      const cleanOhlc = cleanSeriesData(ohlcData as any[]);
-      candlestickSeriesRef.current.setData(cleanOhlc as CandlestickData[]);
+      const cleanOhlc = cleanData(ohlcData as CandlestickData[]);
+      candlestickSeriesRef.current.setData(cleanOhlc);
 
-      // --- THE FIX: Auto-Fit Content ---
-      // This forces the chart to zoom out/in to show exactly the range of data we just loaded.
+      // Auto-fit content to ensure the chart looks good on load
       if (chartRef.current) {
         chartRef.current.timeScale().fitContent();
       }
@@ -183,7 +160,7 @@ export function FinancialChart({
 
   useEffect(() => {
     if (volumeSeriesRef.current && ohlcData.length > 0) {
-      const coloredVolumeData = ohlcData.map((d, i) => ({
+      const coloredVolumeData: HistogramData[] = ohlcData.map((d, i) => ({
         time: d.time,
         value: volumeData[i]?.value || 0,
         color:
@@ -192,8 +169,8 @@ export function FinancialChart({
             : "rgba(239, 83, 80, 0.5)",
       }));
 
-      // FIX: Clean data before setting
-      const cleanVol = cleanSeriesData(coloredVolumeData as any[]);
+      // Clean data before setting
+      const cleanVol = cleanData(coloredVolumeData);
       volumeSeriesRef.current.setData(cleanVol as HistogramData[]);
     }
   }, [ohlcData, volumeData]);
@@ -264,7 +241,7 @@ export function FinancialChart({
           // 4. Set Data
           // We cast to 'any' here only because setData signature varies slightly
           // between Line/Histogram series in TS, but the data shape is compatible.
-          series.setData(finalData as any);
+          series.setData(finalData as LineData[]);
           series.applyOptions({ visible: true });
         } else {
           series.setData([]);

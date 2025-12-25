@@ -1,6 +1,5 @@
 import { AssetDetail } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge"; // Optional: Use badge for status
 
 export function KeyStatistics({ asset }: { asset: AssetDetail }) {
   return (

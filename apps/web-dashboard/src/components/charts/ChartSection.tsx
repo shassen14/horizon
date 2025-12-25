@@ -10,6 +10,7 @@ import { FinancialChart } from "@/components/charts/FinancialChart";
 import { ChartControls } from "@/components/charts/ChartControls";
 import { getInitialIndicatorState } from "@/config/indicators";
 import { TimeRange, getDateRange } from "@/lib/date-ranges";
+import { UTCTimestamp } from "lightweight-charts";
 
 interface ChartSectionProps {
   symbol: string;
@@ -67,7 +68,7 @@ export function ChartSection({ symbol, initialData }: ChartSectionProps) {
   }
 
   const ohlcData = dataToRender.map((d) => ({
-    time: (new Date(d.time).getTime() / 1000) as any,
+    time: (new Date(d.time).getTime() / 1000) as UTCTimestamp,
     open: d.open,
     high: d.high,
     low: d.low,
@@ -75,7 +76,7 @@ export function ChartSection({ symbol, initialData }: ChartSectionProps) {
   }));
 
   const volumeData = dataToRender.map((d) => ({
-    time: (new Date(d.time).getTime() / 1000) as any,
+    time: (new Date(d.time).getTime() / 1000) as UTCTimestamp,
     value: d.volume,
   }));
 
