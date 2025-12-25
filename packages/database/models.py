@@ -111,11 +111,11 @@ class FeaturesDaily(Base):
 
     # --- Family: Returns / Momentum ---
     # These are log returns, which are better for ML than percent change
-    return_1d = Column(Float)
-    return_5d = Column(Float)
-    return_21d = Column(Float)  # Approx 1 month
-    return_63d = Column(Float)  # Approx 3 months
-    return_252d = Column(Float)  # Approx 1 year
+    return_1 = Column(Float)
+    return_5 = Column(Float)
+    return_21 = Column(Float)  # Approx 1 month
+    return_63 = Column(Float)  # Approx 3 months
+    return_252 = Column(Float)  # Approx 1 year
 
     # --- Family: Trend (Moving Averages) ---
     sma_20 = Column(Float)

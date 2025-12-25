@@ -17,7 +17,7 @@ router = APIRouter(prefix="/public/discovery", tags=["Discovery"])
 SortableColumn = Literal[
     "relative_volume",
     "rsi_14",
-    "return_1d",
+    "return_1",
     "volume_adv_20",
     "atr_14_pct",
 ]
@@ -52,7 +52,7 @@ async def get_market_leaders(
             MarketDataDaily.close.label("last_price"),
             FeaturesDaily.relative_volume,
             FeaturesDaily.rsi_14,
-            FeaturesDaily.return_1d,
+            FeaturesDaily.return_1,
             FeaturesDaily.sma_50,
             FeaturesDaily.atr_14_pct,
         )
@@ -103,7 +103,7 @@ async def get_market_leaders(
             sma_50_pct_diff = (row["last_price"] / row["sma_50"]) - 1
 
         daily_change_pct = (
-            (row["return_1d"] * 100) if row.get("return_1d") is not None else 0.0
+            (row["return_1"] * 100) if row.get("return_1") is not None else 0.0
         )
 
         response.append(

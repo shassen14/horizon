@@ -107,20 +107,13 @@ class FeatureFactory:
             )
             exprs.append(rsi_expr)
 
-        # Returns (Rate of Change)
-        # We map human labels to trading days
-        return_map = {
-            "1d": 1,
-            "5d": 5,
-            "21d": 21,  # 1 Month
-            "63d": 63,  # 3 Months
-            "126d": 126,  # 6 Months
-            "252d": 252,  # 1 Year
-        }
+        # Dynamic generation based on config list
+        return_exprs = [
+            pl.col("close").pct_change(n=p).alias(f"return_{p}")
+            for p in cfg.roc_periods
+        ]
 
-        for label, days in return_map.items():
-            # (Price / Price_Ago) - 1
-            exprs.append(pl.col("close").pct_change(n=days).alias(f"return_{label}"))
+        exprs.append(return_exprs)
 
         return exprs
 

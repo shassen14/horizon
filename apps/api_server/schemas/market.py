@@ -23,10 +23,12 @@ class MomentumFeatures(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     rsi_14: float | None = None
-    return_1d: float | None = None
-    return_5d: float | None = None
-    return_21d: float | None = None  # ~1mo
-    return_63d: float | None = None  # ~3mo
+    return_1: float | None = None
+    return_5: float | None = None
+    return_21: float | None = None
+    return_63: float | None = None
+    return_126: float | None = None
+    return_252: float | None = None
 
 
 class VolatilityFeatures(BaseModel):

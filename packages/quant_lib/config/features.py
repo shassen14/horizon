@@ -22,4 +22,4 @@ class FeatureConfig(EnvConfig):
     bollinger_std_dev: int = 2
 
     # Rate of Change (Momentum) Periods (in trading days)
-    roc_periods: List[int] = [21, 63, 126, 252]  # 1mo, 3mo, 6mo, 1yr
+    roc_periods: List[int] = [1, 5, 21, 63, 126, 252]  # 1d, 1w, 1mo, 3mo, 6mo, 1yr

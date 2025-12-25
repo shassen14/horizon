@@ -255,10 +255,10 @@ class MarketDataService:
                 ),
                 momentum=MomentumFeatures(
                     rsi_14=get("rsi_14"),
-                    return_1d=get("return_1d"),
-                    return_5d=get("return_5d"),
-                    return_21d=get("return_21d"),
-                    return_63d=get("return_63d"),
+                    return_1=get("return_1"),
+                    return_5=get("return_5"),
+                    return_21=get("return_21"),
+                    return_63=get("return_63"),
                 ),
                 volatility=VolatilityFeatures(
                     atr_14=get("atr_14"),
