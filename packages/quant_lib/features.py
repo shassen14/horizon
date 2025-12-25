@@ -21,38 +21,24 @@ class FeatureFactory:
     def generate_all(
         self, df: pl.DataFrame, benchmark_df: Optional[pl.DataFrame] = None
     ) -> pl.DataFrame:
-        """
-        Main entry point. Generates all configured features for a single asset dataframe.
-        """
         if df.is_empty():
             return df
-
-        # Ensure data is sorted by time for window functions
         df = df.sort("time")
 
-        # 1. Gather all feature expressions
-        trend_exprs = self._get_trend_expressions()
-        momentum_exprs = self._get_momentum_expressions()
-        volatility_exprs = self._get_volatility_expressions()
-        volume_exprs = self._get_volume_expressions()
+        # Gather all expressions
+        trend = self._get_trend_expressions()
+        momentum = self._get_momentum_expressions()
+        volatility = self._get_volatility_expressions()
+        volume = self._get_volume_expressions()
+        stats = self._get_statistical_expressions()
+        calendar = self._get_calendar_expressions()
+        structure = self._get_structural_expressions()
 
-        # 2. Advanced Statistics & Calendar
-        stats_exprs = self._get_statistical_expressions()
-        calendar_exprs = self._get_calendar_expressions()
-        structure_exprs = self._get_structural_expressions()
-
-        # 2. Apply them in a single optimized pass
-        # Note: We filter out None values in case TA-Lib is missing
+        # Filter out None/Empty lists
         all_exprs = [
             e
             for e in (
-                trend_exprs
-                + momentum_exprs
-                + volatility_exprs
-                + volume_exprs
-                + stats_exprs
-                + calendar_exprs
-                + structure_exprs
+                trend + momentum + volatility + volume + stats + calendar + structure
             )
             if e is not None
         ]
@@ -67,27 +53,20 @@ class FeatureFactory:
         return df
 
     def _get_trend_expressions(self) -> List[pl.Expr]:
-        """
-        Returns expressions for:
-        - SMA (20, 50, 200)
-        - EMA (12, 20, 26, 50)
-        - MACD (Line, Signal, Hist)
-        """
         cfg = self.settings
         exprs = []
 
-        # Simple Moving Averages
-        for p in cfg.sma_periods:  # [20, 50, 200]
+        # SMA
+        for p in cfg.sma_periods:
             exprs.append(pl.col("close").rolling_mean(window_size=p).alias(f"sma_{p}"))
 
-        # Exponential Moving Averages
-        for p in cfg.ema_periods:  # [12, 20, 26, 50]
+        # EMA
+        for p in cfg.ema_periods:
             exprs.append(
                 pl.col("close").ewm_mean(span=p, adjust=False).alias(f"ema_{p}")
             )
 
         # MACD
-        # Uses standard settings (12, 26, 9) usually defined in config
         macd_fast = pl.col("close").ewm_mean(span=cfg.macd_fast_period, adjust=False)
         macd_slow = pl.col("close").ewm_mean(span=cfg.macd_slow_period, adjust=False)
         macd_line = macd_fast - macd_slow
@@ -97,37 +76,47 @@ class FeatureFactory:
         exprs.append(macd_signal.alias("macd_signal"))
         exprs.append((macd_line - macd_signal).alias("macd_hist"))
 
+        # ADX (Directional Movement)
+        if self.talib_available:
+            exprs.append(
+                pl.map_batches(
+                    [pl.col("high"), pl.col("low"), pl.col("close")],
+                    lambda s: ta.ADX(
+                        s[0].to_numpy(zero_copy_only=False),
+                        s[1].to_numpy(zero_copy_only=False),
+                        s[2].to_numpy(zero_copy_only=False),
+                        timeperiod=cfg.adx_period,
+                    ),
+                    return_dtype=pl.Float64,  # Explicit Type
+                ).alias(f"adx_{cfg.adx_period}")
+            )
+
         return exprs
 
     def _get_momentum_expressions(self) -> List[pl.Expr]:
-        """
-        Returns expressions for:
-        - RSI (14)
-        - Returns (1d, 5d, 21d, 63d, 126d, 252d)
-        """
         cfg = self.settings
         exprs = []
 
-        # RSI (Requires TA-Lib)
+        # 1. RSI
         if self.talib_available:
-            rsi_expr = (
+            exprs.append(
                 pl.col("close")
                 .map_batches(
-                    lambda s: ta.RSI(s.to_numpy(), timeperiod=cfg.rsi_period),
+                    lambda s: ta.RSI(
+                        s.to_numpy(zero_copy_only=False), timeperiod=cfg.rsi_period
+                    ),
                     return_dtype=pl.Float64,
                 )
                 .alias(f"rsi_{cfg.rsi_period}")
             )
-            exprs.append(rsi_expr)
 
-        # Dynamic generation based on config list
-        return_exprs = [
-            pl.col("close").pct_change(n=p).alias(f"return_{p}")
-            for p in cfg.roc_periods
-        ]
+        # 2. Returns (Rate of Change)
+        # We append each expression individually to the main list
+        for p in cfg.roc_periods:
+            exprs.append(pl.col("close").pct_change(n=p).alias(f"return_{p}"))
 
-        exprs.append(return_exprs)
-
+        # The result is a single flat list: [expr, expr, expr...]
+        # NOT: [expr, [expr, expr]]
         return exprs
 
     def _get_volatility_expressions(self) -> List[pl.Expr]:
@@ -150,9 +139,7 @@ class FeatureFactory:
         ).alias(f"atr_{cfg.atr_period}")
 
         exprs.append(atr_expr)
-        atr_pct_expr = ((atr_expr / pl.col("close")) * 100).alias(
-            f"atr_{cfg.atr_period}_pct"
-        )
+        atr_pct_expr = ((atr_expr / pl.col("close"))).alias(f"atr_{cfg.atr_period}_pct")
         exprs.append(atr_pct_expr)
 
         # --- Bollinger Bands (THE FIX) ---
