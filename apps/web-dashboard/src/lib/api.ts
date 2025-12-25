@@ -60,9 +60,18 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export async function getSystemStatus(): Promise<SystemStatus | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/v1/public/system/status`, {
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
-    if (!res.ok) throw new Error("Failed to fetch system status");
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `Status API Failed: ${res.status} ${res.statusText} - ${text.substring(
+          0,
+          100
+        )}`
+      );
+    }
     return res.json();
   } catch (error) {
     console.error("getSystemStatus error:", error);
