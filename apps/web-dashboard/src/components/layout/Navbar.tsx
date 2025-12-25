@@ -27,12 +27,12 @@ export function Navbar() {
             >
               Market
             </Link>
-            <Link
+            {/* <Link
               href="/about"
               className="transition-colors hover:text-foreground/80 text-foreground/60"
             >
               About
-            </Link>
+            </Link> */}
           </nav>
         </div>
 
