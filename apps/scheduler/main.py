@@ -1,115 +1,112 @@
 # apps/scheduler/main.py
-
 import asyncio
+import threading
 from datetime import datetime, timezone
-
-from packages.quant_lib.config import settings
 from packages.quant_lib.logging import LogManager
 from market_clock import MarketClock
+from jobs import JobRunner
 
-# Import Engines
-from apps.ingest_worker.engine import IngestionEngine
-from apps.ingest_worker.sources.alpaca import AlpacaSource
-from apps.feature_worker.engine import FeatureEngine
-from aiolimiter import AsyncLimiter
-
-# Initialize Logger
-log_manager = LogManager(settings, "scheduler")
+# --- Setup ---
+log_manager = LogManager("scheduler")
 logger = log_manager.get_logger("main")
+jobs = JobRunner(log_manager)
+clock = MarketClock()
 
-# --- Job Locks ---
-# These prevent a job from being triggered if the previous run is still active
+# --- Locks ---
 ingest_intraday_lock = asyncio.Lock()
 daily_routine_lock = asyncio.Lock()
+audit_lock = asyncio.Lock()
+optimize_lock = asyncio.Lock()
+backup_lock = threading.Lock()  # For sync function
 
 
-# --- Job Functions (Same as before, but now with logging) ---
-async def job_ingest_intraday():
-    if ingest_intraday_lock.locked():
-        logger.warning("Intraday job skipped: Previous run still active.")
-        return
-
-    async with ingest_intraday_lock:
-        logger.info(">>> Starting Intraday Ingestion...")
-        try:
-            source = AlpacaSource()
-            limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
-            engine_logger = log_manager.get_logger("ingest-intraday")
-            engine = IngestionEngine(source, settings, engine_logger, limiter)
-
-            # await engine.run_metadata_sync()
-            await engine.run_intraday_ingestion()
-            logger.success("<<< Intraday Ingestion Complete.")
-        except Exception as e:
-            logger.exception(f"Intraday Job Failed: {e}")
-
-
-async def job_daily_routine():
-    if daily_routine_lock.locked():
-        logger.warning("Daily routine skipped: Previous run still active.")
-        return
-
-    async with daily_routine_lock:
-        logger.info(">>> Starting Daily Routine...")
-        try:
-            # 1. Ingestion
-            source = AlpacaSource()
-            limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
-            ingest_logger = log_manager.get_logger("ingest-daily")
-            ingest_engine = IngestionEngine(source, settings, ingest_logger, limiter)
-
-            await ingest_engine.run_metadata_sync()
-            await ingest_engine.run_daily_ingestion()
-
-            # 2. Features
-            feat_logger = log_manager.get_logger("feature-daily")
-            feature_engine = FeatureEngine(settings, feat_logger)
-            await feature_engine.run()
-
-            logger.success("<<< Daily Routine Complete.")
-        except Exception as e:
-            logger.exception(f"Daily Routine Failed: {e}")
-
-
-# --- The Main Loop ---
 async def main():
-    clock = MarketClock()
-
-    # Track state to run daily jobs only once
     last_daily_run_date = None
+    last_audit_run_date = None
+    last_optimize_run_day = None  # Sunday = 6
+    last_backup_run_day = None
 
-    logger.info("--- Horizon Scheduler Started: Market-Aware Mode ---")
+    logger.info("--- Horizon Scheduler Started: Full Maintenance Mode ---")
 
     while True:
         now = datetime.now(timezone.utc)
 
-        # --- Intraday Logic ---
-        # Run every 5 minutes during market hours
-        if clock.is_market_open():
-            if now.minute % 5 == 0:
-                logger.info(
-                    f"Market is OPEN. Minute is {now.minute}. Triggering Intraday job."
-                )
-                asyncio.create_task(job_ingest_intraday())
+        # 1. Intraday Ingestion (High Frequency)
+        if (
+            clock.is_market_open()
+            and now.minute % 5 == 0
+            and not ingest_intraday_lock.locked()
+        ):
+            asyncio.create_task(
+                run_with_lock(ingest_intraday_lock, jobs.run_ingest_intraday)
+            )
 
-        # --- Daily Logic ---
-        # Run once after market close
-        # (e.g., 4:15 PM EST -> ~21:15 UTC)
-
-        is_weekday = now.weekday() < 5  # Mon=0, Fri=4
+        # 2. Daily Ingestion + Features (After-Market)
         is_after_close = now.hour >= 21 and now.minute >= 15
+        if (
+            clock.is_trading_day(now.date())
+            and is_after_close
+            and now.date() != last_daily_run_date
+            and not daily_routine_lock.locked()
+        ):
+            last_daily_run_date = now.date()
+            asyncio.create_task(
+                run_with_lock(daily_routine_lock, jobs.run_daily_routine)
+            )
 
-        # Check if it's time AND we haven't run it today yet
-        if is_weekday and is_after_close and now.date() != last_daily_run_date:
-            logger.info(f"Market is likely CLOSED. Triggering Daily Routine.")
-            asyncio.create_task(job_daily_routine())
-            last_daily_run_date = now.date()  # Mark as run for today
+        # 3. Data Audit (Late Night)
+        is_late_night = now.hour == 6  # 1 AM PST / 4 AM EST
+        if (
+            now.date() != last_audit_run_date
+            and is_late_night
+            and not audit_lock.locked()
+        ):
+            last_audit_run_date = now.date()
+            asyncio.create_task(run_with_lock(audit_lock, jobs.run_data_audit))
 
-        # Tick every minute
+        # 4. DB Optimization (Weekly - Sunday)
+        is_sunday = now.weekday() == 6
+        if (
+            is_sunday
+            and now.day != last_optimize_run_day
+            and is_late_night
+            and not optimize_lock.locked()
+        ):
+            last_optimize_run_day = now.day
+            asyncio.create_task(run_with_lock(optimize_lock, jobs.run_db_optimize))
+
+        # 5. DB Backup (Weekly - Sunday, slightly after)
+        is_late_sunday = is_sunday and now.hour == 7
+        if (
+            is_late_sunday
+            and now.day != last_backup_run_day
+            and backup_lock.acquire(blocking=False)
+        ):
+            last_backup_run_day = now.day
+            # Run sync function in a separate thread to not block asyncio loop
+            threading.Thread(
+                target=run_sync_with_lock, args=(backup_lock, jobs.run_db_backup)
+            ).start()
+
         await asyncio.sleep(60)
 
 
+# --- Lock Helpers ---
+async def run_with_lock(lock: asyncio.Lock, coro):
+    async with lock:
+        await coro()
+
+
+def run_sync_with_lock(lock: threading.Lock, func):
+    try:
+        func()
+    finally:
+        lock.release()
+
+
 if __name__ == "__main__":
+    # Add a method to MarketClock to check if it's a trading day
+    # MarketClock.is_trading_day(date) -> bool
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
