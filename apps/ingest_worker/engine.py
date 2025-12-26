@@ -227,7 +227,11 @@ class IngestionEngine:
     async def run_daily_ingestion(self):
         self.logger.info("--- Phase 2: Daily Data Ingestion (Concurrent) ---")
 
+        # Lazy load assets
+        await self._ensure_assets_loaded()
+
         if not self.active_assets_map:
+            self.logger.warning("No active assets found. Skipping Daily Ingestion.")
             return
 
         # 1. Get Latest Timestamps
@@ -341,7 +345,11 @@ class IngestionEngine:
     async def run_intraday_ingestion(self):
         self.logger.info("--- Phase 3: Intraday Ingestion (Concurrent) ---")
 
+        # Lazy load assets
+        await self._ensure_assets_loaded()
+
         if not self.active_assets_map:
+            self.logger.warning("No active assets found. Skipping Intraday Ingestion.")
             return
 
         # 1. Config & Model
@@ -637,3 +645,33 @@ class IngestionEngine:
         # 2. Write once
         count = await self._write_to_db(combined_df, model_class, ledger_col)
         self.logger.success(f"     -> Wrote {count} rows in one transaction.")
+
+    async def _load_active_assets(self, specific_symbol: str | None = None):
+        """
+        Internal helper: Loads the map of assets marked as active from the database.
+        """
+        async with get_db_session() as session:
+            stmt = select(Asset.id, Asset.symbol).where(Asset.is_active == True)
+
+            if specific_symbol:
+                stmt = stmt.where(Asset.symbol == specific_symbol.upper())
+
+            stmt = stmt.order_by(Asset.symbol)
+
+            result = await session.execute(stmt)
+            self.active_assets_map = {row[0]: row[1] for row in result}
+
+        if specific_symbol and not self.active_assets_map:
+            self.logger.warning(f"Symbol '{specific_symbol}' not found or not active.")
+        else:
+            self.logger.info(
+                f"Loaded {len(self.active_assets_map)} active assets to process."
+            )
+
+    async def _ensure_assets_loaded(self):
+        """
+        Lazy Loader: Checks if assets are loaded and loads them if not.
+        This is the single entry point for checking asset state.
+        """
+        if not self.active_assets_map:
+            await self._load_active_assets()
