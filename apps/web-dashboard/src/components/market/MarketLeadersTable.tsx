@@ -123,7 +123,9 @@ export function MarketLeadersTable({ filters }: MarketLeadersTableProps) {
                   {stock.rsi_14?.toFixed(0) ?? "-"}
                 </TableCell>
                 <TableCell className="hidden md:table-cell text-muted-foreground text-xs">
-                  {stock.atr_14_pct ? `${stock.atr_14_pct.toFixed(2)}%` : "-"}
+                  {stock.atr_14_pct
+                    ? `${(stock.atr_14_pct * 100).toFixed(2)}%`
+                    : "-"}
                 </TableCell>
               </TableRow>
             ))

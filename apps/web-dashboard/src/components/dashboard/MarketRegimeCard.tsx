@@ -100,7 +100,7 @@ export function MarketRegimeCard({ regime }: { regime: MarketRegime | null }) {
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div className="space-y-1">
             <p className="text-muted-foreground">Market Breadth</p>
-            <p className="font-semibold">{formatPercent(regime.breadth_pct)}</p>
+            {formatPercent(regime.breadth_pct)}
             <p className="text-xs text-muted-foreground">
               (% stocks &gt SMA50)
             </p>
@@ -108,7 +108,7 @@ export function MarketRegimeCard({ regime }: { regime: MarketRegime | null }) {
           <div className="space-y-1">
             <p className="text-muted-foreground">Avg. Volatility</p>
             <p className="font-semibold">
-              {regime.market_volatility_avg?.toFixed(2)}%
+              {formatPercent(regime.market_volatility_avg)}
             </p>
             <p className="text-xs text-muted-foreground">(Daily ATR%)</p>
           </div>

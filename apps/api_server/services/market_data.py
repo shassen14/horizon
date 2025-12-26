@@ -7,8 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api_server.schemas.market import (
+    CalendarFeatures,
     HistoryDataPoint,
     FeatureSet,
+    StatFeatures,
+    StructuralFeatures,
     TrendFeatures,
     MomentumFeatures,
     VolatilityFeatures,
@@ -252,6 +255,7 @@ class MarketDataService:
                     macd=get("macd"),
                     macd_signal=get("macd_signal"),
                     macd_hist=get("macd_hist"),
+                    adx_14=get("adx_14"),
                 ),
                 momentum=MomentumFeatures(
                     rsi_14=get("rsi_14"),
@@ -259,6 +263,8 @@ class MarketDataService:
                     return_5=get("return_5"),
                     return_21=get("return_21"),
                     return_63=get("return_63"),
+                    return_126=get("return_126"),
+                    return_252=get("return_252"),
                 ),
                 volatility=VolatilityFeatures(
                     atr_14=get("atr_14"),
@@ -271,6 +277,23 @@ class MarketDataService:
                 volume=VolumeFeatures(
                     volume_adv_20=get("volume_adv_20"),
                     relative_volume=get("relative_volume"),
+                    obv=get("obv"),
+                    mfi_14=get("mfi_14"),
+                ),
+                structure=StructuralFeatures(
+                    high_252_pct=get("high_252_pct"), low_252_pct=get("low_252_pct")
+                ),
+                stats=StatFeatures(
+                    skew_20=get("skew_20"),
+                    skew_60=get("skew_60"),
+                    zscore_20=get("zscore_20"),
+                    zscore_60=get("zscore_60"),
+                ),
+                calendar=CalendarFeatures(
+                    day_of_week=get("day_of_week"),
+                    day_of_month=get("day_of_month"),
+                    month_of_year=get("month_of_year"),
+                    quarter=get("quarter"),
                 ),
             ),
         )

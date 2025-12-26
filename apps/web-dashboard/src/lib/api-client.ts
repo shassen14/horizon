@@ -11,13 +11,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /**
-     * Get Market History
-     * @description Robust Time-Series Endpoint.
-     *     - If start/end provided: Returns specific range (Oldest -> Newest).
-     *     - If NO dates provided: Returns LATEST 'limit' points (Oldest -> Newest).
-     *     - Always strictly typed and validated.
-     */
+    /** Get Market History */
     get: operations["get_symbol_history"];
     put?: never;
     post?: never;
@@ -195,6 +189,17 @@ export interface components {
       /** Exchange */
       exchange?: string | null;
     };
+    /** CalendarFeatures */
+    CalendarFeatures: {
+      /** Day Of Week */
+      day_of_week?: number | null;
+      /** Day Of Month */
+      day_of_month?: number | null;
+      /** Month Of Year */
+      month_of_year?: number | null;
+      /** Quarter */
+      quarter?: number | null;
+    };
     /**
      * Environment
      * @enum {string}
@@ -209,6 +214,9 @@ export interface components {
       momentum: components["schemas"]["MomentumFeatures"];
       volatility: components["schemas"]["VolatilityFeatures"];
       volume: components["schemas"]["VolumeFeatures"];
+      structure: components["schemas"]["StructuralFeatures"];
+      stats: components["schemas"]["StatFeatures"];
+      calendar: components["schemas"]["CalendarFeatures"];
     };
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -284,14 +292,18 @@ export interface components {
     MomentumFeatures: {
       /** Rsi 14 */
       rsi_14?: number | null;
-      /** Return 1D */
-      return_1d?: number | null;
-      /** Return 5D */
-      return_5d?: number | null;
-      /** Return 21D */
-      return_21d?: number | null;
-      /** Return 63D */
-      return_63d?: number | null;
+      /** Return 1 */
+      return_1?: number | null;
+      /** Return 5 */
+      return_5?: number | null;
+      /** Return 21 */
+      return_21?: number | null;
+      /** Return 63 */
+      return_63?: number | null;
+      /** Return 126 */
+      return_126?: number | null;
+      /** Return 252 */
+      return_252?: number | null;
     };
     /**
      * RegimeType
@@ -326,6 +338,24 @@ export interface components {
       sma_50_pct_diff: number | null;
       /** Atr 14 Pct */
       atr_14_pct: number | null;
+    };
+    /** StatFeatures */
+    StatFeatures: {
+      /** Skew 20 */
+      skew_20?: number | null;
+      /** Skew 60 */
+      skew_60?: number | null;
+      /** Zscore 20 */
+      zscore_20?: number | null;
+      /** Zscore 60 */
+      zscore_60?: number | null;
+    };
+    /** StructuralFeatures */
+    StructuralFeatures: {
+      /** High 252 Pct */
+      high_252_pct?: number | null;
+      /** Low 252 Pct */
+      low_252_pct?: number | null;
     };
     /**
      * SystemHealth
@@ -365,6 +395,8 @@ export interface components {
       macd_signal?: number | null;
       /** Macd Hist */
       macd_hist?: number | null;
+      /** Adx 14 */
+      adx_14?: number | null;
     };
     /** ValidationError */
     ValidationError: {
@@ -396,6 +428,10 @@ export interface components {
       volume_adv_20?: number | null;
       /** Relative Volume */
       relative_volume?: number | null;
+      /** Obv */
+      obv?: number | null;
+      /** Mfi 14 */
+      mfi_14?: number | null;
     };
   };
   responses: never;
@@ -411,11 +447,10 @@ export interface operations {
       query?: {
         /** @description Aggregation interval */
         interval?: components["schemas"]["MarketInterval"];
-        /** @description Filter start date (UTC, inclusive) */
+        /** @description Start date (UTC) */
         start_date?: string | null;
-        /** @description Filter end date (UTC, inclusive) */
+        /** @description End date (UTC) */
         end_date?: string | null;
-        /** @description Max data points to return */
         limit?: number;
       };
       header?: never;
@@ -550,7 +585,7 @@ export interface operations {
         sort_by?:
           | "relative_volume"
           | "rsi_14"
-          | "return_1d"
+          | "return_1"
           | "volume_adv_20"
           | "atr_14_pct";
         /** @description Sort direction. */

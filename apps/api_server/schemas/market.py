@@ -17,6 +17,7 @@ class TrendFeatures(BaseModel):
     macd: float | None = None
     macd_signal: float | None = None
     macd_hist: float | None = None
+    adx_14: float | None = None
 
 
 class MomentumFeatures(BaseModel):
@@ -48,6 +49,31 @@ class VolumeFeatures(BaseModel):
 
     volume_adv_20: float | None = None
     relative_volume: float | None = None
+    obv: float | None = None
+    mfi_14: float | None = None
+
+
+class StructuralFeatures(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    high_252_pct: float | None = None
+    low_252_pct: float | None = None
+
+
+class StatFeatures(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    skew_20: float | None = None
+    skew_60: float | None = None
+    zscore_20: float | None = None
+    zscore_60: float | None = None
+
+
+class CalendarFeatures(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    day_of_week: int | None = None
+    day_of_month: int | None = None
+    month_of_year: int | None = None
+    quarter: int | None = None
 
 
 class FeatureSet(BaseModel):
@@ -57,6 +83,9 @@ class FeatureSet(BaseModel):
     momentum: MomentumFeatures
     volatility: VolatilityFeatures
     volume: VolumeFeatures
+    structure: StructuralFeatures
+    stats: StatFeatures
+    calendar: CalendarFeatures
 
 
 class HistoryDataPoint(BaseModel):

@@ -93,7 +93,7 @@ export function MarketScreener() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="relative_volume">Relative Volume</SelectItem>
-                <SelectItem value="return_1d">Daily Change</SelectItem>
+                <SelectItem value="return_1">Daily Change</SelectItem>
                 <SelectItem value="rsi_14">RSI</SelectItem>
                 <SelectItem value="atr_14_pct">Volatility (ATR)</SelectItem>
                 <SelectItem value="volume_adv_20">Avg Volume</SelectItem>

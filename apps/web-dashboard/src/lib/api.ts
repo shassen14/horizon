@@ -30,7 +30,7 @@ export type AssetDetail = components["schemas"]["AssetDetail"];
 export type MarketLeadersSortBy =
   | "relative_volume"
   | "rsi_14"
-  | "return_1d"
+  | "return_1"
   | "volume_adv_20"
   | "atr_14_pct";
 

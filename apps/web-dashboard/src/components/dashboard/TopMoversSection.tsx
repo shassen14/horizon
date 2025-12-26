@@ -53,9 +53,9 @@ export function TopMoversSection() {
         sortDir: "desc",
       }));
     } else if (newMode === "gainers") {
-      setFilters((prev) => ({ ...prev, sortBy: "return_1d", sortDir: "desc" }));
+      setFilters((prev) => ({ ...prev, sortBy: "return_1", sortDir: "desc" }));
     } else if (newMode === "losers") {
-      setFilters((prev) => ({ ...prev, sortBy: "return_1d", sortDir: "asc" }));
+      setFilters((prev) => ({ ...prev, sortBy: "return_1", sortDir: "asc" }));
     }
   };
 
