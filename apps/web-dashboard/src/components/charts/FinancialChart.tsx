@@ -54,6 +54,33 @@ export function FinancialChart({
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
+    // 1. Get the browser's timezone (e.g., "America/Chicago")
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    // 2. Formatters
+    const crosshairFormatter = new Intl.DateTimeFormat(undefined, {
+      timeZone: userTimezone,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+    });
+
+    const axisTimeFormatter = new Intl.DateTimeFormat(undefined, {
+      timeZone: userTimezone,
+      hour: "numeric",
+      minute: "numeric",
+    });
+
+    const axisDateFormatter = new Intl.DateTimeFormat(undefined, {
+      timeZone: userTimezone,
+      month: "short",
+      day: "numeric",
+      // Optional: Add year if zooming out very far
+      // year: "2-digit",
+    });
+
     // Create the main chart instance
     const chart = createChart(chartContainerRef.current, {
       layout: {
@@ -68,6 +95,14 @@ export function FinancialChart({
         horzLines: { color: "#e1e1e1" },
       },
       rightPriceScale: { scaleMargins: { top: 0.1, bottom: 0.3 } }, // Reserve bottom 30% for oscillators
+
+      localization: {
+        // This controls the text in the floating crosshair label
+        timeFormatter: (timestamp: number) => {
+          return crosshairFormatter.format(new Date(timestamp * 1000));
+        },
+      },
+
       timeScale: {
         timeVisible: true,
         secondsVisible: false,
@@ -80,6 +115,23 @@ export function FinancialChart({
 
         // Prevent zooming out so far that bars become invisible or negative width
         minBarSpacing: 0.5,
+        // This controls the text on the bottom axis
+        // Use tickMarkType to decide format (0=Year, 1=Month, 2=Day, 3=Time)
+        tickMarkFormatter: (
+          time: number,
+          tickMarkType: number,
+          locale: string
+        ) => {
+          const date = new Date(time * 1000);
+
+          // If the library asks for Year, Month, or Day (Type < 3), show Date.
+          if (tickMarkType < 3) {
+            return axisDateFormatter.format(date);
+          }
+
+          // Otherwise (Type 3 or 4), show Time.
+          return axisTimeFormatter.format(date);
+        },
       },
     });
     chartRef.current = chart;
