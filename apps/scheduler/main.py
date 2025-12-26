@@ -76,17 +76,17 @@ async def main():
             asyncio.create_task(run_with_lock(optimize_lock, jobs.run_db_optimize))
 
         # 5. DB Backup (Weekly - Sunday, slightly after)
-        is_late_sunday = is_sunday and now.hour == 7
-        if (
-            is_late_sunday
-            and now.day != last_backup_run_day
-            and backup_lock.acquire(blocking=False)
-        ):
-            last_backup_run_day = now.day
-            # Run sync function in a separate thread to not block asyncio loop
-            threading.Thread(
-                target=run_sync_with_lock, args=(backup_lock, jobs.run_db_backup)
-            ).start()
+        # is_late_sunday = is_sunday and now.hour == 7
+        # if (
+        #     is_late_sunday
+        #     and now.day != last_backup_run_day
+        #     and backup_lock.acquire(blocking=False)
+        # ):
+        #     last_backup_run_day = now.day
+        #     # Run sync function in a separate thread to not block asyncio loop
+        #     threading.Thread(
+        #         target=run_sync_with_lock, args=(backup_lock, jobs.run_db_backup)
+        #     ).start()
 
         await asyncio.sleep(60)
 
@@ -105,8 +105,6 @@ def run_sync_with_lock(lock: threading.Lock, func):
 
 
 if __name__ == "__main__":
-    # Add a method to MarketClock to check if it's a trading day
-    # MarketClock.is_trading_day(date) -> bool
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):

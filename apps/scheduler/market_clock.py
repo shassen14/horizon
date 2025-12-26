@@ -20,6 +20,15 @@ class MarketClock:
             )
             self.last_schedule_date = target_date
 
+    def is_trading_day(self, target_date: date) -> bool:
+        """
+        Checks if a given date is a valid trading day (not a weekend or holiday).
+        """
+        self._ensure_schedule(target_date)
+
+        # The schedule_df index is datetime. We check if the date part exists.
+        return pd.Timestamp(target_date) in self.schedule_df.index
+
     def is_market_open(self) -> bool:
         """Checks if the market is currently open."""
         now = datetime.now(timezone.utc)
