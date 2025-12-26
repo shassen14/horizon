@@ -111,7 +111,7 @@ export function MarketLeadersTable({ filters }: MarketLeadersTableProps) {
                     }`}
                   >
                     {stock.daily_change_pct >= 0 ? "+" : ""}
-                    {stock.daily_change_pct.toFixed(2)}%
+                    {(stock.daily_change_pct * 100).toFixed(2)}%
                   </span>
                 </TableCell>
                 <TableCell className="font-mono text-xs">
