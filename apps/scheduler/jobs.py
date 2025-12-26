@@ -24,7 +24,7 @@ class JobRunner:
             logger.info(">>> Starting...")
             source = AlpacaSource()
             limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
-            engine = IngestionEngine(source, settings, logger, limiter)
+            engine = IngestionEngine(source, logger, limiter)
 
             await engine.run_metadata_sync()  # Fast cache check
             await engine.run_intraday_ingestion()
@@ -40,12 +40,12 @@ class JobRunner:
             # 1. Ingestion
             source = AlpacaSource()
             limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
-            ingest_engine = IngestionEngine(source, settings, logger, limiter)
+            ingest_engine = IngestionEngine(source, logger, limiter)
             await ingest_engine.run_metadata_sync()
             await ingest_engine.run_daily_ingestion()
 
             # 2. Features
-            feature_engine = FeatureEngine(settings, logger)
+            feature_engine = FeatureEngine(logger)
             await feature_engine.run()
 
             logger.success("<<< Complete.")
