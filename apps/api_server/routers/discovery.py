@@ -102,9 +102,7 @@ async def get_market_leaders(
         if row.get("last_price") and row.get("sma_50") and row["sma_50"] > 0:
             sma_50_pct_diff = (row["last_price"] / row["sma_50"]) - 1
 
-        daily_change_pct = (
-            (row["return_1"] * 100) if row.get("return_1") is not None else 0.0
-        )
+        daily_change_pct = row.get("return_1") or 0.0
 
         response.append(
             ScreenerResult(
