@@ -217,6 +217,9 @@ packages/ml_core/cache/*.parquet
 packages/ml_core/configs/alpha/*.yml
 packages/ml_core/configs/regime/*.yml
 
+# MLOps
+mlruns/*
+
 # Exception: Allow example/baseline configs
 !packages/ml_core/configs/alpha/example_*.yml
 !packages/ml_core/configs/alpha/baseline_*.yml
