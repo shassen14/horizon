@@ -43,7 +43,7 @@ COPY packages/ ./packages/
 RUN uv pip install --system -r requirements.in
 RUN uv pip install --system -e ./packages/database
 RUN uv pip install --system -e ./packages/quant_lib
-RUN uv pip install --system -e ./packages/ml_core
+# RUN uv pip install --system -e ./packages/ml_core
 
 # 6. Copy Application Code
 COPY apps/ ./apps/
