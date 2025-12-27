@@ -2,20 +2,18 @@
 
 import polars as pl
 from datetime import datetime
-from typing import Any, Dict, List, Union
-from alpaca.common.types import RawData
+from typing import List, Optional, Any
+
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
-from alpaca.data.models.bars import BarSet
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetAssetsRequest
-from alpaca.trading.enums import AssetStatus, AssetClass
+from alpaca.trading.enums import AssetStatus
 
 from packages.quant_lib.config import settings
 from packages.quant_lib.interfaces import DataSource
-
 
 # A mapping to rename Alpaca's columns to ours
 ALPACA_COLUMN_MAP = {
@@ -31,9 +29,12 @@ ALPACA_COLUMN_MAP = {
 
 
 class AlpacaSource(DataSource):
-    def __init__(self):
+    def __init__(self, logger=None):
+        self.logger = logger
+
         self.api_key = settings.alpaca.api_key
         self.secret_key = settings.alpaca.secret_key
+
         if not self.api_key or not self.secret_key:
             raise ValueError("Alpaca API key and secret key must be set in .env file.")
 
@@ -42,26 +43,26 @@ class AlpacaSource(DataSource):
             self.api_key, self.secret_key, paper=settings.alpaca.paper_trading
         )
 
-    def get_all_tickers(self) -> List[Dict[str, Any]]:
+    def get_all_tickers(self) -> List[dict]:
         """Fetches all active, tradable US Equity assets from Alpaca."""
-        request = GetAssetsRequest(
-            status=AssetStatus.ACTIVE, asset_class=AssetClass.US_EQUITY
-        )
+        if self.logger:
+            self.logger.info("Fetching all active assets from Alpaca...")
+
+        request = GetAssetsRequest(status=AssetStatus.ACTIVE, asset_class="us_equity")
         assets = self.trading_client.get_all_assets(request)
 
-        # Convert to list of dicts
         return [
             {
-                "symbol": asset.symbol,  # type: ignore
-                "name": asset.name,  # type: ignore
-                "exchange": asset.exchange.value if asset.exchange else "UNKNOWN",  # type: ignore
+                "symbol": asset.symbol,
+                "name": asset.name,
+                "exchange": asset.exchange.value if asset.exchange else "UNKNOWN",
                 "asset_class": "us_equity",
-                "tradable": asset.tradable,  # type: ignore
-                "marginable": asset.marginable,  # type: ignore
-                "shortable": asset.shortable,  # type: ignore
+                "tradable": asset.tradable,
+                "marginable": asset.marginable,
+                "shortable": asset.shortable,
             }
             for asset in assets
-            if asset.tradable  # type: ignore
+            if asset.tradable
         ]
 
     def get_ohlcv_bars(
@@ -69,20 +70,12 @@ class AlpacaSource(DataSource):
         symbols: List[str],
         start_dt: datetime,
         end_dt: datetime,
-        timeframe: TimeFrame = TimeFrame.Day,  # Default to Daily
+        timeframe: TimeFrame = TimeFrame.Day,
         use_sip: bool = True,
     ) -> pl.DataFrame:
-        """
-        Fetches OHLCV data.
-        :param timeframe: Alpaca TimeFrame object (e.g., TimeFrame.Day, TimeFrame(5, TimeFrameUnit.Minute))
-        :param use_sip: If True, uses SIP feed (Complete data). If False, uses IEX (Free/Real-time but sparse).
-        """
         if not symbols:
             return pl.DataFrame()
 
-        # Handle Data Feed Selection
-        # SIP is high quality but delayed 15m on free plans.
-        # IEX is real-time on free plans but misses volume/trades from other exchanges.
         feed = DataFeed.SIP if use_sip else DataFeed.IEX
 
         request_params = StockBarsRequest(
@@ -95,27 +88,27 @@ class AlpacaSource(DataSource):
         )
 
         try:
-            barset: Union[BarSet, RawData] = self.client.get_stock_bars(request_params)
+            # Debug log to trace requests
+            if self.logger:
+                self.logger.debug(
+                    f"Requesting {len(symbols)} syms | {start_dt} -> {end_dt} | TF: {timeframe}"
+                )
 
-            # Convert the Alpaca BarSet object to a list of dicts
+            barset = self.client.get_stock_bars(request_params)
+
             data = []
-            if isinstance(barset, BarSet):
-                for symbol in barset.data:
-                    for bar in barset.data[symbol]:
-                        bar_data = bar.model_dump()
-                        bar_data["symbol"] = symbol  # Add symbol to each bar's dict
-                        data.append(bar_data)
-            else:
-                print("Expected barset to be of type, BarSet")
+            for symbol in barset.data:
+                for bar in barset.data[symbol]:
+                    bar_data = bar.model_dump()
+                    bar_data["symbol"] = symbol
+                    data.append(bar_data)
 
             if not data:
                 return pl.DataFrame()
 
-            # Create Polars DataFrame and perform transformations
             df = pl.from_dicts(data)
             df = df.rename(ALPACA_COLUMN_MAP)
 
-            # Ensure correct data types
             df = df.with_columns(
                 [
                     pl.col("time").dt.replace_time_zone("UTC"),
@@ -127,7 +120,17 @@ class AlpacaSource(DataSource):
             return df
 
         except Exception as e:
-            print(f"Error fetching data from Alpaca: {e}")
-            return pl.DataFrame()
+            msg = f"Error fetching data from Alpaca: {e}"
+            context = (
+                f"Params: Start={start_dt}, End={end_dt}, Feed={feed}, TF={timeframe}"
+            )
 
-    # We will add get_all_tradable_assets here later
+            if self.logger:
+                self.logger.error(msg)
+                self.logger.error(context)
+            else:
+                # Fallback if no logger injected
+                print(msg)
+                print(context)
+
+            return pl.DataFrame()

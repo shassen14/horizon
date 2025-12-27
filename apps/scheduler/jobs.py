@@ -2,6 +2,7 @@
 
 from packages.quant_lib.config import settings
 from packages.quant_lib.logging import LogManager
+from packages.quant_lib.market_clock import MarketClock
 from aiolimiter import AsyncLimiter
 
 # --- Engine Imports ---
@@ -22,9 +23,10 @@ class JobRunner:
         logger = self.log_manager.get_logger("ingest-intraday")
         try:
             logger.info(">>> Starting...")
-            source = AlpacaSource()
+            source = AlpacaSource(logger)
             limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
-            engine = IngestionEngine(source, logger, limiter)
+            clock = MarketClock()
+            engine = IngestionEngine(source, logger, limiter, clock)
 
             await engine.run_metadata_sync()  # Fast cache check
             await engine.run_intraday_ingestion()
@@ -38,9 +40,10 @@ class JobRunner:
             logger.info(">>> Starting Daily Ingestion & Feature Gen...")
 
             # 1. Ingestion
-            source = AlpacaSource()
+            source = AlpacaSource(logger)
             limiter = AsyncLimiter(settings.ingestion.api_rate_limit_per_minute, 60)
-            ingest_engine = IngestionEngine(source, logger, limiter)
+            clock = MarketClock()
+            ingest_engine = IngestionEngine(source, logger, limiter, clock)
             await ingest_engine.run_metadata_sync()
             await ingest_engine.run_daily_ingestion()
 

@@ -1,29 +1,42 @@
-# requirements.in
+# ==========================================================
+# Horizon Platform - Python Dependencies
+# Install using: uv pip install -r requirements.in
+# ==========================================================
 
-# --- Core Frameworks ---
+# --- Web & API Framework ---
 fastapi
-uvicorn[standard] # For the API server
-apscheduler      # For the job scheduler
-slowapi          # For rate limiting
+uvicorn[standard]  # Includes uvloop for high performance
+slowapi            # For API rate limiting
+apscheduler        # For scheduling background jobs (ingestion, features)
 
-# --- Data & Quant ---
-aiolimiter
-pandas_market_calendars
+# --- Data & Quantitative Analysis ---
 polars
-polars[pyarrow]  # High-performance dataframes
-connectorx       # High Speed database connectors for polars
-pyarrow          # For efficient data serialization
-alpaca-py
-TA-Lib           # If on a platform that supports the binary
+pyarrow
+polars[pyarrow]         # Core high-performance DataFrame library
+connectorx              # High-speed database connector for Polars
+TA-Lib                  # The Python wrapper for the TA-Lib C library
+alpaca-py               # Official SDK for Alpaca data source
+aiolimiter              # For async-native rate limiting in the ingest worker
+pandas                  # Required for compatibility with some ML libraries (LightGBM, scikit-learn)
+pandas_market_calendars # For market holiday and trading day calculations
 
 # --- Database ---
-sqlalchemy[asyncio]
-alembic
-asyncpg          # Driver for PostgreSQL
-psycopg2-binary  # Required by some tools and Alembic
+sqlalchemy[asyncio] # Core ORM and SQL toolkit
+alembic             # For database migrations
+asyncpg             # The async driver for PostgreSQL (used by FastAPI/SQLAlchemy)
+psycopg2-binary     # The sync driver for PostgreSQL (used by Alembic/Polars)
 
-# --- Utilities ---
-loguru
-pydantic-settings
-python-dotenv    # For loading .env files
-ruff             # Linter and formatter
+# --- Machine Learning ---
+lightgbm           # Our primary ML algorithm (Gradient Boosting)
+scikit-learn       # For data splitting, metrics, and other models like RandomForest
+torch              # For future neural network models
+joblib             # For saving and loading scikit-learn/LightGBM model files
+pyyaml             # For loading our .yml model configuration blueprints
+
+# --- Core Utilities ---
+python-dotenv      # For loading configuration from .env files
+pydantic-settings  # For robust, typed application settings
+loguru             # For structured and easy-to-use logging
+
+# --- Development Tools ---
+ruff               # High-performance linter and code formatter

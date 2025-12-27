@@ -5,7 +5,7 @@ from collections import defaultdict
 import math
 import pandas as pd
 import polars as pl
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from sqlalchemy import select, func, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -22,19 +22,19 @@ from packages.database.models import (
 )
 from packages.quant_lib.date_utils import (
     ensure_utc_timestamp,
-    get_market_close_yesterday,
-    get_full_trading_schedule,
-    get_trading_days_in_range,
 )
-
 from packages.quant_lib.interfaces import DataSource
+from packages.quant_lib.market_clock import MarketClock
 
 
 class IngestionEngine:
-    def __init__(self, source: DataSource, logger, limiter: AsyncLimiter):
+    def __init__(
+        self, source: DataSource, logger, limiter: AsyncLimiter, clock: MarketClock
+    ):
         self.source = source
         self.logger = logger
         self.limiter = limiter
+        self.clock = clock
 
         # Internal state
         self.active_assets_map: dict[int, str] = {}
@@ -115,7 +115,20 @@ class IngestionEngine:
 
         # 3. Data Filter (The Probe)
         self.logger.info(f"Starting Data Probe on {len(candidates)} candidates...")
-        end_dt = get_market_close_yesterday()
+        # We want the data for this date.
+        last_settled_date = self.clock.get_last_settled_date()
+
+        # We construct the "Theoretical" end of that day (23:59:59.999 UTC)
+        theoretical_end = datetime.combine(
+            last_settled_date, time(23, 59, 59, 999999)
+        ).replace(tzinfo=timezone.utc)
+
+        sip_safe_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
+
+        # Cap it at "Right Now" to prevent Future Query errors
+        # If settled date is Today, this will cap at Now.
+        # If settled date is Yesterday, 'Now' is likely greater, so we keep Yesterday 23:59.
+        end_dt = min(theoretical_end, sip_safe_limit)
         start_dt = end_dt - timedelta(days=5)
 
         PROBE_BATCH_SIZE = 200
@@ -244,12 +257,24 @@ class IngestionEngine:
             )
             latest_map = {row[0]: row[1] for row in result}
 
-        end_dt = get_market_close_yesterday()
+        # We want the data for this date.
+        last_settled_date = self.clock.get_last_settled_date()
+
+        # We construct the "Theoretical" end of that day (23:59:59.999 UTC)
+        theoretical_end = datetime.combine(
+            last_settled_date, time(23, 59, 59, 999999)
+        ).replace(tzinfo=timezone.utc)
+
+        sip_safe_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
+        print(sip_safe_limit)
+
+        # Cap it at "Right Now" to prevent Future Query errors
+        # If settled date is Today, this will cap at Now.
+        # If settled date is Yesterday, 'Now' is likely greater, so we keep Yesterday 23:59.
+        end_dt = min(theoretical_end, sip_safe_limit)
         default_start = end_dt - timedelta(days=settings.ingestion.default_history_days)
 
-        trading_schedule = get_full_trading_schedule(
-            default_start.date(), end_dt.date()
-        )
+        trading_schedule = self.clock.get_schedule(default_start.date(), end_dt.date())
 
         # 2. Group Assets
         groups = defaultdict(list)
@@ -270,7 +295,7 @@ class IngestionEngine:
 
         for start_dt, group_asset_ids in groups.items():
             # Calculate Dynamic Batch Size
-            trading_days = get_trading_days_in_range(
+            trading_days = self.clock.count_trading_days(
                 start_dt.date(), end_dt.date(), trading_schedule
             )
             if trading_days <= 0:
@@ -381,9 +406,7 @@ class IngestionEngine:
             days=settings.ingestion.intraday_lookback_days
         )
 
-        trading_schedule = get_full_trading_schedule(
-            default_start.date(), end_dt.date()
-        )
+        trading_schedule = self.clock.get_schedule(default_start.date(), end_dt.date())
 
         # 3. Spawn Tasks
         tasks = []

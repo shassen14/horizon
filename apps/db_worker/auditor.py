@@ -7,13 +7,14 @@ from packages.database.session import get_db_session
 from packages.database.models import Asset
 from packages.quant_lib.date_utils import (
     ensure_utc_timestamp,
-    get_full_trading_schedule,
 )
+from packages.quant_lib.market_clock import MarketClock
 
 
 class DataAuditor:
-    def __init__(self, logger):
+    def __init__(self, logger, clock: MarketClock):
         self.logger = logger
+        self.clock = clock
         # Cache the schedule to avoid re-calculating it 17,000 times
         self.schedule = None
 
@@ -74,7 +75,7 @@ class DataAuditor:
             end = datetime.now(timezone.utc)
             start = end - timedelta(days=365 * 5)
             self.logger.info("Loading NYSE Trading Calendar...")
-            self.schedule = get_full_trading_schedule(start.date(), end.date())
+            self.schedule = self.clock.get_schedule(start.date(), end.date())
 
     def _is_real_gap(
         self, start_dt: datetime, end_dt: datetime, is_intraday: bool
