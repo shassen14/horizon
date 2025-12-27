@@ -8,6 +8,7 @@ data:
   target_horizon_days: 21 # 1 Month horizon
   generate_lags: true
   filter_regime: 1 # <--- 1 = Bull Market Only
+  target_column: "target_forward_return"
 
   feature_prefix_groups:
     - "sma_"

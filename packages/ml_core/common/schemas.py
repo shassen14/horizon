@@ -8,6 +8,8 @@ class DataConfig(BaseModel):
     target_horizon_days: int | None = None
     feature_prefix_groups: List[str]
     dataset_builder: str = "AlphaDatasetBuilder"
+    # The name of the column in the dataframe to use as 'y'
+    target_column: str
 
     # If set, looks for packages/ml_core/models/{name}.pkl
     regime_model_name: str | None = None

@@ -76,10 +76,7 @@ class Trainer:
             return
 
         # Determine target column
-        if bp.model.objective == "classification":
-            target_col = "target_regime_bull"
-        else:
-            target_col = "target_forward_return"
+        target_col = bp.data.target_column
 
         if target_col not in model_df.columns:
             self.logger.error(f"Target column '{target_col}' not found in dataset.")

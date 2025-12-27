@@ -8,6 +8,7 @@ data:
   target_horizon_days: 21
   generate_lags: true
   filter_regime: null # Train on everything
+  target_column: "target_forward_return"
 
   # Basic Feature Set
   feature_prefix_groups:

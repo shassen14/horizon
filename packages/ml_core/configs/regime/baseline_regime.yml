@@ -7,6 +7,7 @@ data:
   end_date: "2025-12-31"
   target_horizon_days: 63
   generate_lags: false # Regime models usually look at current macro state
+  target_column: "target_regime_bull"
 
   feature_prefix_groups:
     - "breadth_"
