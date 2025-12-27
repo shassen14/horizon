@@ -10,11 +10,8 @@ class AlphaDatasetBuilder(AbstractDatasetBuilder):
     def _load_data_internal(self) -> pl.DataFrame:
         self.logger.info("Building dataset for Alpha Ranking...")
 
-        start_date = self.config.start_date
-        end_date = self.config.end_date
-
         # 1. Fetch Base Data (All stocks, all features)
-        # Note: We perform the join here to get close_price for targets
+        # Note: We assume 'db_url' property is available from Base class
         query = f"""
             SELECT 
                 fd.*, 
@@ -23,36 +20,45 @@ class AlphaDatasetBuilder(AbstractDatasetBuilder):
             FROM features_daily fd
             JOIN market_data_daily mdd ON fd.time = mdd.time AND fd.asset_id = mdd.asset_id
             JOIN asset_metadata a ON fd.asset_id = a.id
-            WHERE fd.time >= '{start_date}' AND fd.time <= '{end_date}'
+            WHERE fd.time >= '{self.config.start_date}' AND fd.time <= '{self.config.end_date}'
             ORDER BY fd.time ASC
         """
-        df = pl.read_database_uri(query, self.db_url)
+
+        try:
+            df = pl.read_database_uri(query, self.db_url)
+        except Exception as e:
+            self.logger.error(f"DB Error: {e}")
+            return pl.DataFrame()
+
         if df.is_empty():
             return df
 
-        self.logger.info(f"Loaded {len(df):,} rows. Applying Regime Labels...")
-
-        # 2. Apply Regime Labels
-        # Only run this if the config specifically asks to filter by regime.
+        # 2. Apply Regime Logic (Specific to Alpha Config)
+        # We access specific fields safely because we know self.config is AlphaDataConfig
         if self.config.filter_regime is not None:
-            self.logger.info("Regime filtering requested. Applying labels...")
-            df = self._apply_regime_labels(df)
-        else:
             self.logger.info(
-                "No regime filter requested. Skipping regime labeling (Baseline Mode)."
+                f"Regime Filter Active: Keeping only regime {self.config.filter_regime}"
             )
 
-        # 3. Calculate Target: 3-Month Forward Return
-        # (Standard Ranking Target)
-        TARGET_HORIZON_DAYS = 63
-        df = df.with_columns(
-            (
-                (
-                    pl.col("close_price").shift(-TARGET_HORIZON_DAYS)
-                    / pl.col("close_price")
+            # Label the data first
+            df = self._apply_regime_labels(df)
+
+            # Filter rows
+            if "regime" in df.columns:
+                original_count = len(df)
+                df = df.filter(pl.col("regime") == self.config.filter_regime)
+                self.logger.info(f"Filtered rows from {original_count} to {len(df)}")
+            else:
+                self.logger.warning(
+                    "Regime column missing after labeling. Cannot filter."
                 )
-                - 1
-            )
+
+        # 3. Calculate Target
+        # We look forward N days. We must group by asset_id to avoid shifting data between stocks.
+        horizon = self.config.target_horizon_days
+
+        df = df.with_columns(
+            ((pl.col("close_price").shift(-horizon) / pl.col("close_price")) - 1)
             .over("asset_id")
             .alias("target_forward_return")
         )

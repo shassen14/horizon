@@ -1,10 +1,12 @@
-# packages/ml_core/data/processors.py
+# packages/ml_core/data/processors/temporal.py
 
 import polars as pl
 from typing import List
 
+from packages.ml_core.data.processors.base import BaseProcessor
 
-class TemporalFeatureProcessor:
+
+class TemporalFeatureProcessor(BaseProcessor):
     """
     Transforms a DataFrame of base features into a model-ready feature set
     by adding temporal context (lags and deltas).
@@ -20,7 +22,7 @@ class TemporalFeatureProcessor:
         ]
         self.lag_periods: List[int] = [1, 3, 5, 21, 63]
 
-    def prepare_features(self, df: pl.DataFrame) -> pl.DataFrame:
+    def transform(self, df: pl.DataFrame) -> pl.DataFrame:
         """
         Main entry point. Adds lag and delta columns to the DataFrame.
         """

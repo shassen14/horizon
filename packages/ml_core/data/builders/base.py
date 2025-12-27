@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import polars as pl
-from packages.ml_core.common.schemas import DataConfig
+from packages.ml_core.common.schemas import DataConfigType
 from packages.quant_lib.config import Settings
 from urllib.parse import quote_plus
 
@@ -17,14 +17,15 @@ class AbstractDatasetBuilder(ABC):
     and handling model-specific preprocessing (like regime labeling).
     """
 
-    def __init__(self, settings: Settings, logger, config: DataConfig):
+    def __init__(self, settings: Settings, logger, config: DataConfigType):
         self.settings = settings
         self.logger = logger
         self.config = config
 
         # Define Cache Directory
-        self.cache_dir = Path(__file__).resolve().parents[1] / "cache"
+        self.cache_dir = Path(__file__).resolve().parents[2] / "cache"
         self.cache_dir.mkdir(exist_ok=True)
+        print(f"{self.cache_dir}")
 
     @property
     def db_url(self) -> str:
@@ -70,18 +71,17 @@ class AbstractDatasetBuilder(ABC):
         if self.config.cache_tag:
             return f"custom_{self.config.cache_tag}"
 
-        # Create a dict of config items that affect data definition
-        config_dict = {
-            "builder": self.config.dataset_builder,
-            "start": self.config.start_date,
-            "end": self.config.end_date,
-            "horizon": self.config.target_horizon_days,
-            "regime_model": self.config.regime_model_name,
-            # Add prefix groups because changing features means changing data structure
-            "features": sorted(self.config.feature_prefix_groups),
-        }
+        # 1. Dump the Pydantic model to a dict
+        # exclude_defaults=False ensures we capture everything relevant
+        config_dict = self.config.model_dump()
 
-        # Serialize to JSON string and Hash
+        # 2. Sort list fields (like feature groups) to ensure consistency
+        if "feature_prefix_groups" in config_dict:
+            config_dict["feature_prefix_groups"] = sorted(
+                config_dict["feature_prefix_groups"]
+            )
+
+        # 3. Hash
         config_str = json.dumps(config_dict, sort_keys=True)
         config_hash = hashlib.md5(config_str.encode("utf-8")).hexdigest()
 

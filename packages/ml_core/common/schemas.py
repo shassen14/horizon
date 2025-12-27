@@ -1,29 +1,47 @@
-from pydantic import BaseModel
-from typing import List, Dict, Any
+from pydantic import BaseModel, Field
+from typing import Annotated, List, Dict, Any, Literal, Union
 
 
-class DataConfig(BaseModel):
+# Abstract Base
+class BaseDataConfig(BaseModel):
+    # Common fields for ALL pipelines
+    dataset_builder: str  # Still needed for the Factory registry
+    target_column: str
     start_date: str | None = None
     end_date: str | None = None
-    target_horizon_days: int | None = None
-    feature_prefix_groups: List[str]
-    dataset_builder: str = "AlphaDatasetBuilder"
-    # The name of the column in the dataframe to use as 'y'
-    target_column: str
+    feature_prefix_groups: List[str] = []
 
-    # If set, looks for packages/ml_core/models/{name}.pkl
+    # Caching
+    use_cache: bool = True
+    force_refresh: bool = False
+    cache_tag: str | None = None
+
+
+# Alpha Implementation
+class AlphaDataConfig(BaseDataConfig):
+    kind: Literal["alpha"] = "alpha"  # The Discriminator
+
+    # Specifics for Alpha
+    target_horizon_days: int = 63
+    generate_lags: bool = True
+    filter_regime: int | None = None
     regime_model_name: str | None = None
 
-    # Flags
-    generate_lags: bool = False
-    filter_regime: int | None = None
 
-    # Caching Control ---
-    use_cache: bool = True  # Default to True for speed
-    force_refresh: bool = False  # Set True if you changed DB data or Logic
-    cache_tag: str | None = (
-        None  # Optional: Manually name the cache file (e.g. "baseline_v1")
-    )
+# Regime Implementation
+class RegimeDataConfig(BaseDataConfig):
+    kind: Literal["regime"] = "regime"  # The Discriminator
+
+    # Specifics for Regime
+    # Might add 'include_vix' later
+    target_horizon_days: int = 63
+
+
+# The Union Type
+# This tells Pydantic: "Look at the 'kind' field. If it's 'alpha', use AlphaDataConfig."
+DataConfigType = Annotated[
+    Union[AlphaDataConfig, RegimeDataConfig], Field(discriminator="kind")
+]
 
 
 class ModelConfig(BaseModel):
@@ -50,6 +68,6 @@ class TrainingConfig(BaseModel):
 class ModelBlueprint(BaseModel):
     model_name: str
     description: str
-    data: DataConfig
+    data: DataConfigType
     model: ModelConfig
     training: TrainingConfig

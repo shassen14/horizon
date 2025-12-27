@@ -33,22 +33,32 @@ class SklearnTrainingStrategy(TrainingStrategy):
     """Handles training for models with a scikit-learn compatible .fit() API."""
 
     def train(self, model, X_train, y_train, X_val, y_val):
-        print("--- Using SklearnTrainingStrategy ---")
+        print(f"--- Using SklearnTrainingStrategy for {type(model).__name__} ---")
 
         fit_params = {}
 
-        # LightGBM models have a 'callbacks' parameter in fit.
-        # Standard sklearn models like RandomForest do not.
-        if "eval_set" in model.fit.__code__.co_varnames:
-            print("Model supports early stopping. Adding eval_set and callbacks.")
-            fit_params["eval_set"] = [(X_val, y_val)]
-            fit_params["eval_metric"] = self.config.eval_metric
-            fit_params["callbacks"] = [
-                lgb.early_stopping(self.config.early_stopping_rounds)
-            ]
+        # Check if the model supports early stopping (LightGBM/XGBoost)
+        # We inspect the arguments of the 'fit' method
+        import inspect
 
-        # The training call is now generic
-        model.fit(X_train, y_train, **fit_params)
+        fit_args = inspect.signature(model.fit).parameters
+
+        if "eval_set" in fit_args:
+            print("Model supports early stopping. Configuring callbacks.")
+            fit_params["eval_set"] = [(X_val, y_val.values.ravel())]  # Fix shape here
+            fit_params["eval_metric"] = self.config.eval_metric
+
+            # Only add callbacks if supported (LGBM specific)
+            if "callbacks" in fit_args:
+                fit_params["callbacks"] = [
+                    lgb.early_stopping(self.config.early_stopping_rounds, verbose=False)
+                ]
+
+        # Execute Training
+        # We use .values.ravel() on y_train to convert DataFrame col to 1D Array
+        # This suppresses the DataConversionWarning
+        model.fit(X_train, y_train.values.ravel(), **fit_params)
+
         return model
 
 

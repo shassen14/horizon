@@ -6,7 +6,7 @@ from pathlib import Path
 from packages.quant_lib.config import settings
 from packages.quant_lib.logging import LogManager
 from packages.ml_core.common.schemas import ModelBlueprint
-from packages.ml_core.factory import MLComponentFactory
+from packages.ml_core.training.factory import MLComponentFactory
 from packages.ml_core.training.trainer import Trainer
 
 

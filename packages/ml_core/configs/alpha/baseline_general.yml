@@ -2,13 +2,11 @@ model_name: "baseline_alpha_general"
 description: "A baseline LightGBM model trained on all historical data without regime filtering."
 
 data:
+  kind: "alpha"
   dataset_builder: "AlphaDatasetBuilder"
+  target_column: "target_forward_return"
   start_date: "2023-01-01"
   end_date: "2024-01-01" # Shorter range for quick public demo
-  target_horizon_days: 21
-  generate_lags: true
-  filter_regime: null # Train on everything
-  target_column: "target_forward_return"
 
   # Basic Feature Set
   feature_prefix_groups:
@@ -20,6 +18,12 @@ data:
   # Caching
   use_cache: true
   force_refresh: false
+  cache_tag: null
+
+  target_horizon_days: 21
+  generate_lags: true
+  filter_regime: null # Train on everything
+  regime_model_name: null
 
 model:
   type: "lightgbm.LGBMRegressor"

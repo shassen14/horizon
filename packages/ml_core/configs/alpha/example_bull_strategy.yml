@@ -5,9 +5,6 @@ data:
   dataset_builder: "AlphaDatasetBuilder"
   start_date: "2023-01-01"
   end_date: "2024-12-31"
-  target_horizon_days: 21 # 1 Month horizon
-  generate_lags: true
-  filter_regime: 1 # <--- 1 = Bull Market Only
   target_column: "target_forward_return"
 
   feature_prefix_groups:
@@ -19,6 +16,13 @@ data:
     - "zscore_"
 
   use_cache: true
+  force_refresh: false
+  cache_tag: null
+
+  target_horizon_days: 21 # 1 Month horizon
+  generate_lags: true
+  filter_regime: 1 # <--- 1 = Bull Market Only
+  regime_model_name: "baseline_regime"
 
 model:
   type: "lightgbm.LGBMRegressor"

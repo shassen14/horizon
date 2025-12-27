@@ -2,7 +2,7 @@ import importlib
 from typing import Type, Any, Dict
 
 # Import Base Classes/Interfaces for type hinting
-from packages.ml_core.datasets.base import AbstractDatasetBuilder
+from packages.ml_core.data.builders.base import AbstractDatasetBuilder
 from packages.ml_core.evaluation.base import EvaluationStrategy
 from packages.ml_core.training.strategies import TrainingStrategy
 from packages.quant_lib.config import Settings
@@ -15,8 +15,8 @@ from packages.ml_core.training.strategies import (
 )
 from packages.ml_core.evaluation.regression import RegressionEvaluator
 from packages.ml_core.evaluation.classification import ClassificationEvaluator
-from packages.ml_core.datasets.alpha import AlphaDatasetBuilder
-from packages.ml_core.datasets.regime import RegimeDatasetBuilder
+from packages.ml_core.data.builders.alpha import AlphaDatasetBuilder
+from packages.ml_core.data.builders.regime import RegimeDatasetBuilder
 
 # from packages.ml_core.datasets.risk import RiskDatasetBuilder
 
