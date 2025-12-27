@@ -102,7 +102,7 @@ export function MarketRegimeCard({ regime }: { regime: MarketRegime | null }) {
             <p className="text-muted-foreground">Market Breadth</p>
             {formatPercent(regime.breadth_pct)}
             <p className="text-xs text-muted-foreground">
-              (% stocks &gt SMA50)
+              (% stocks {">"} SMA50)
             </p>
           </div>
           <div className="space-y-1">
