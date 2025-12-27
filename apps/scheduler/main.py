@@ -1,7 +1,7 @@
 # apps/scheduler/main.py
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from packages.quant_lib.logging import LogManager
 from packages.quant_lib.market_clock import MarketClock
@@ -49,8 +49,7 @@ async def main():
             )
 
         # --- Daily After-Market Job ---
-        # Instead of hardcoding 21:15, let's make it relative to the actual close.
-        _, market_close = clock.get_market_session_utc(now.date())
+        _, market_close = clock.get_session_times(now.date())
 
         if market_close:
             # We want to run 45 minutes AFTER the official close.
