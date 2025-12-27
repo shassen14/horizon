@@ -1,0 +1,33 @@
+model_name: "baseline_regime_rf"
+description: "Random Forest classifier to detect Bull vs Bear market conditions."
+
+data:
+  dataset_builder: "RegimeDatasetBuilder"
+  start_date: "2024-01-01" # Needs long history to see cycles
+  end_date: "2025-12-31"
+  target_horizon_days: 63
+  generate_lags: false # Regime models usually look at current macro state
+
+  feature_prefix_groups:
+    - "breadth_"
+    - "vol_"
+    - "spy_"
+
+  use_cache: true
+
+model:
+  type: "sklearn.ensemble.RandomForestClassifier"
+  objective: "classification"
+  params:
+    n_estimators: 200
+    max_depth: 5 # Shallow trees to prevent overfitting
+    class_weight: "balanced" # Critical for handling rare Bear markets
+    random_state: 42
+    n_jobs: -1
+
+training:
+  strategy: "SklearnTrainingStrategy"
+  evaluator: "ClassificationEvaluator"
+  time_split_ratio: 0.8
+  early_stopping_rounds: 0 # RF doesn't use early stopping
+  eval_metric: "logloss" # Placeholder
