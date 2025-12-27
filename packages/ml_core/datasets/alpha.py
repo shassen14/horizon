@@ -7,8 +7,11 @@ from .base import AbstractDatasetBuilder
 
 
 class AlphaDatasetBuilder(AbstractDatasetBuilder):
-    def load_data(self, start_date: str, end_date: str, **kwargs) -> pl.DataFrame:
+    def _load_data_internal(self) -> pl.DataFrame:
         self.logger.info("Building dataset for Alpha Ranking...")
+
+        start_date = self.config.start_date
+        end_date = self.config.end_date
 
         # 1. Fetch Base Data (All stocks, all features)
         # Note: We perform the join here to get close_price for targets
@@ -61,14 +64,20 @@ class AlphaDatasetBuilder(AbstractDatasetBuilder):
         Reconstructs market features and uses the saved Regime Classifier
         to label every day in the dataset as Bull (1) or Bear (0).
         """
+        # Determine Model Name from Config
+        model_name = self.config.regime_model_name
+
         # Path to the artifact you just created
         model_path = (
-            Path(__file__).resolve().parents[2] / "models" / "regime_classifier_v1.pkl"
+            Path(__file__).resolve().parents[1] / "models" / f"{model_name}.pkl"
         )
 
         if not model_path.exists():
             self.logger.warning("Regime model not found! Defaulting to '1' (Bull).")
+            self.logger.warning(f"model_path: {model_path}")
             return df.with_columns(pl.lit(1).alias("regime"))
+
+        self.logger.info(f"Using regime model: {model_name}")
 
         try:
             regime_model = joblib.load(model_path)

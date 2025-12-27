@@ -1,6 +1,7 @@
 # packages/ml_core/training/trainer.py
 
 from pathlib import Path
+import polars as pl
 
 from packages.ml_core.common.schemas import ModelBlueprint
 from packages.ml_core.factory import MLComponentFactory
@@ -22,9 +23,7 @@ class Trainer:
 
         # 1. Load Data (Via Factory)
         builder = self.factory.create_dataset_builder(bp.data)
-        base_df = builder.load_data(
-            start_date=bp.data.start_date, end_date=bp.data.end_date
-        )
+        base_df = builder.get_data()
 
         if base_df.is_empty():
             self.logger.error("Data loading failed. Aborting training.")

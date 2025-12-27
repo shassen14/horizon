@@ -7,12 +7,21 @@ class DataConfig(BaseModel):
     end_date: str | None = None
     target_horizon_days: int | None = None
     feature_prefix_groups: List[str]
+    dataset_builder: str = "AlphaDatasetBuilder"
+
+    # If set, looks for packages/ml_core/models/{name}.pkl
+    regime_model_name: str | None = None
 
     # Flags
     generate_lags: bool = False
     filter_regime: int | None = None
 
-    dataset_builder: str = "AlphaDatasetBuilder"
+    # Caching Control ---
+    use_cache: bool = True  # Default to True for speed
+    force_refresh: bool = False  # Set True if you changed DB data or Logic
+    cache_tag: str | None = (
+        None  # Optional: Manually name the cache file (e.g. "baseline_v1")
+    )
 
 
 class ModelConfig(BaseModel):

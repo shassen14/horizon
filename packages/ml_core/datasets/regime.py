@@ -5,8 +5,11 @@ from .base import AbstractDatasetBuilder
 
 
 class RegimeDatasetBuilder(AbstractDatasetBuilder):
-    def load_data(self, start_date: str, end_date: str, **kwargs) -> pl.DataFrame:
+    def _load_data_internal(self) -> pl.DataFrame:
         self.logger.info("Building dataset for Regime Classification...")
+
+        start_date = self.config.start_date
+        end_date = self.config.end_date
 
         # 1. Base Query (Same as before)
         query = f"""
