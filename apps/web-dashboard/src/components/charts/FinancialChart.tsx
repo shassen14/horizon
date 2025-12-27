@@ -119,8 +119,8 @@ export function FinancialChart({
         // Use tickMarkType to decide format (0=Year, 1=Month, 2=Day, 3=Time)
         tickMarkFormatter: (
           time: number,
-          tickMarkType: number,
-          locale: string
+          tickMarkType: number
+          // _locale: string
         ) => {
           const date = new Date(time * 1000);
 
