@@ -4,6 +4,7 @@ import asyncio
 import argparse
 from packages.quant_lib.logging import LogManager
 
+from packages.quant_lib.market_clock import MarketClock
 from policies import PolicyManager
 from auditor import DataAuditor
 from optimization import DatabaseOptimizer
@@ -18,6 +19,7 @@ async def main():
 
     log_manager = LogManager("db-worker")
     logger = log_manager.get_logger("main")
+    clock = MarketClock()
 
     try:
         # Policies (Set and Forget)
@@ -27,7 +29,7 @@ async def main():
 
         # Audit (Find gaps)
         if args.mode in ["all", "audit"]:
-            auditor = DataAuditor(logger)
+            auditor = DataAuditor(logger, clock)
             await auditor.run_daily_audit()
             # Intraday audit is heavy, maybe run separately or strictly scheduled
             await auditor.run_intraday_audit()
