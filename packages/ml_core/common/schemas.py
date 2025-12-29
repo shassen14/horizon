@@ -48,6 +48,7 @@ class ModelConfig(BaseModel):
     type: str  # e.g., "lightgbm.LGBMRegressor"
     objective: str
     params: Dict[str, Any]
+    dependencies: List[str] = []
 
 
 class TrainingConfig(BaseModel):

@@ -4,6 +4,8 @@ import joblib
 from pathlib import Path
 from typing import Any, List
 import polars as pl
+import mlflow.pyfunc
+import pandas as pd
 
 from packages.ml_core.data.processors.base import BaseProcessor
 
@@ -84,3 +86,26 @@ class HorizonPipeline:
     @staticmethod
     def load(path: Path):
         return joblib.load(path)
+
+
+class HorizonMLflowWrapper(mlflow.pyfunc.PythonModel):
+    """
+    Adapter to make HorizonPipeline compatible with MLflow Registry.
+    """
+
+    def __init__(self, pipeline: HorizonPipeline):
+        self.pipeline = pipeline
+
+    def predict(self, context, model_input: pd.DataFrame):
+        """
+        MLflow standard inference method.
+        model_input: Usually a Pandas DataFrame coming from the API or UI.
+        """
+        # 1. Convert Input to Polars (if it isn't already)
+        if isinstance(model_input, pd.DataFrame):
+            df = pl.from_pandas(model_input)
+        else:
+            df = model_input
+
+        # 2. Delegate to the actual pipeline
+        return self.pipeline.predict(df)

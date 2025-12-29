@@ -4,15 +4,15 @@ from datetime import datetime
 import getpass
 from pathlib import Path
 import subprocess
+import mlflow
 import polars as pl
 import pandas as pd
 
 from packages.ml_core.common.schemas import ModelBlueprint
 from packages.ml_core.data.processors.temporal import TemporalFeatureProcessor
 from packages.ml_core.training.factory import MLComponentFactory
-from packages.ml_core.modeling.pipeline import HorizonPipeline
+from packages.ml_core.modeling.pipeline import HorizonPipeline, HorizonMLflowWrapper
 from packages.ml_core.common.tracker import ExperimentTracker
-from packages.quant_lib.config import settings
 
 
 class Trainer:
@@ -121,14 +121,41 @@ class Trainer:
             self._log_feature_importance(pipeline.model, X, tracker)
 
             # K. Save & Log Artifact
-            temp_model_dir = Path("./temp_model_artifacts")
-            temp_model_dir.mkdir(exist_ok=True)
-            model_path = temp_model_dir / f"{bp.model_name}.pkl"
+            self.logger.info("Registering model to MLflow...")
 
-            pipeline.save(model_path)
-            tracker.log_artifact(str(model_path))
-            model_path.unlink()  # Cleanup
+            # Wrap the pipeline
+            mlflow_model = HorizonMLflowWrapper(pipeline)
 
+            # Infer Signature (Input/Output schema) for the Registry UI
+            # We use the validation set X (Pandas) and predictions
+            signature = mlflow.models.infer_signature(
+                X_val, pipeline.predict(pl.from_pandas(X_val))  # Get sample output
+            )
+
+            # We get the list directly from the YAML blueprint
+            pip_reqs = bp.model.dependencies
+
+            input_example = X_val.head(5)
+
+            # Log and Register
+            # This does 3 things:
+            # 1. Pickles the model
+            # 2. Uploads it to the NAS (Artifact Store)
+            # 3. Creates a version entry in the Postgres DB (Registry)
+            model_info = mlflow.pyfunc.log_model(
+                name="model",
+                python_model=mlflow_model,
+                registered_model_name=bp.model_name,  # e.g. "alpha_bull_v1"
+                signature=signature,
+                input_example=input_example,
+                pip_requirements=pip_reqs,
+            )
+
+            self.logger.success(
+                f"Model registered! Version: {model_info.registered_model_version}"
+            )
+
+            self.logger.success(f"Model registered with dependencies: {pip_reqs}")
             self.logger.success(f"Pipeline saved and logged.")
 
     def _log_context(self, bp, tracker):
