@@ -13,6 +13,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    # Allocate 2GB of shared memory to the container.
+    # This prevents 'No space left on device' errors during VACUUM on large tables.
+    shm_size: "2gb"
     volumes:
       - /volume1/docker/horizon_db/timescaledb_data:/var/lib/postgresql/data
     env_file: .env
@@ -38,7 +41,7 @@ services:
     restart: unless-stopped
     command: >
       sh -c "pip install mlflow psycopg2-binary &&
-             mlflow server --host 0.0.0.0 --port 5002 --backend-store-uri \"postgresql+psycopg2://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@database:5432/${MLFLOW_DB_NAME}\" --default-artifact-root /mlruns --cors-allowed-origins '192.168.1.*'"
+             mlflow server --host 0.0.0.0 --port 5002 --backend-store-uri \"postgresql+psycopg2://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@database:5432/${MLFLOW_DB_NAME}\" --default-artifact-root /mlruns --serve-artifacts --cors-allowed-origins '192.168.1.*'"
     ports:
       - "5002:5002"
     volumes:
