@@ -11,9 +11,9 @@ class RegimeDatasetBuilder(AbstractDatasetBuilder):
         # 1. Load Data
         query = f"""
             SELECT 
-                fd.time, 
-                fd.asset_id, 
-                fd.sma_50, 
+                fd.time,
+                fd.asset_id,
+                fd.sma_50,
                 fd.atr_14_pct,
                 fd.rsi_14,
                 fd.zscore_20,
@@ -25,14 +25,21 @@ class RegimeDatasetBuilder(AbstractDatasetBuilder):
             WHERE fd.time >= '{self.config.start_date}' AND fd.time <= '{self.config.end_date}'
         """
 
-        df = pl.read_database_uri(query, self.db_url)
-        if df.is_empty():
-            return df
+        try:
+            full_df = pl.read_database_uri(query, self.db_url)
+        except Exception as e:
+            self.logger.error(f"DB Error: {e}")
+            return pl.DataFrame()
+
+        if full_df.is_empty():
+            return pl.DataFrame()
+
+        self.logger.info(f"Loaded {len(full_df):,} base rows for regime calculation.")
 
         # 2. Calculate Market Breadth (Prefix: breadth_)
         # Logic: (Close > SMA50)
         market_df = (
-            df.group_by("time")
+            full_df.group_by("time")
             .agg(
                 [
                     (
@@ -51,7 +58,7 @@ class RegimeDatasetBuilder(AbstractDatasetBuilder):
         # 3. Get SPY Features (Prefix: spy_)
         # We need to make sure SPY actually HAS data in the DB
         spy_df = (
-            df.filter(pl.col("symbol") == "SPY")
+            full_df.filter(pl.col("symbol") == "SPY")
             .select(["time", "rsi_14", "zscore_20", "close_price"])
             .rename(
                 {
@@ -63,26 +70,38 @@ class RegimeDatasetBuilder(AbstractDatasetBuilder):
         )
 
         if spy_df.is_empty():
-            self.logger.error("SPY data not found! Regime model cannot be built.")
+            self.logger.error(
+                "SPY data not found in the loaded range! Regime model cannot be built."
+            )
             return pl.DataFrame()
 
         # 4. Join
         final_df = market_df.join(spy_df, on="time", how="left")
 
-        # 5. Calculate Target
+        # Get the horizon from the validated Pydantic config object
+        horizon = self.config.target_horizon_days
+        self.logger.info(f"Using target horizon of {horizon} days for regime labels.")
+
+        # 5. Calculate Target using the horizon
         final_df = final_df.with_columns(
             (
-                (pl.col("spy_close_price").shift(-63) / pl.col("spy_close_price")) - 1
-            ).alias("target_return")
+                (pl.col("spy_close_price").shift(-horizon) / pl.col("spy_close_price"))
+                - 1
+            ).alias("spy_forward_return")
         )
 
         final_df = final_df.with_columns(
-            (pl.col("target_return") > 0.0).cast(pl.Int32).alias("target_regime_bull")
+            (pl.col("spy_forward_return") > 0.0)
+            .cast(pl.Float64)
+            .alias("target_regime_bull")
         )
-
         # 6. Cleanup
         # Drop columns used for calculation but not for training
         # We KEEP the ones starting with breadth_, vol_, spy_
-        final_df = final_df.drop(["spy_close_price", "target_return"])
+        final_df = final_df.drop(["spy_close_price", "spy_forward_return"])
+
+        self.logger.success(
+            f"Regime dataset preparation complete. Shape: {final_df.shape}"
+        )
 
         return final_df.drop_nulls()

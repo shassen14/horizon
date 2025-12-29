@@ -4,13 +4,14 @@ from datetime import datetime
 import getpass
 from pathlib import Path
 import subprocess
-import mlflow
+import polars as pl
 import pandas as pd
 
 from packages.ml_core.common.schemas import ModelBlueprint
 from packages.ml_core.data.processors.temporal import TemporalFeatureProcessor
 from packages.ml_core.training.factory import MLComponentFactory
 from packages.ml_core.modeling.pipeline import HorizonPipeline
+from packages.ml_core.common.tracker import ExperimentTracker
 from packages.quant_lib.config import settings
 
 
@@ -24,113 +25,113 @@ class Trainer:
         bp = self.blueprint
         self.logger.info(f"--- Starting Training Pipeline for: {bp.model_name} ---")
 
-        # 1. Configuration (Safe operations)
-        try:
-            mlflow.set_tracking_uri(settings.system.mlflow_tracking_uri)
-            mlflow.set_experiment(experiment_name=bp.model_name)
-        except mlflow.MlflowException as e:
-            self.logger.error(f"MLflow connection failed: {e}")
-            return
+        # Start the Context Manager
+        run_name = f"train_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
-        # 2. Zombie Killer
-        # Ensure absolutely NO runs are active before we start our own.
-        # We loop because sometimes nested runs can leave multiple layers open.
-        while mlflow.active_run():
-            zombie = mlflow.active_run()
-            self.logger.warning(f"Ending lingering zombie run: {zombie.info.run_id}")
-            mlflow.end_run()
+        # The Tracker handles connection, zombies, and the 'with' block
+        with ExperimentTracker(bp.model_name, run_name) as tracker:
+            self.logger.info(f"MLflow Run Started. Run ID: {tracker.get_run_id()}")
 
-        # 3. Start the Run
-        # CRITICAL: Do NOT call any mlflow.log_* functions before this line.
-        try:
-            with mlflow.start_run(
-                run_name=f"train_{datetime.now().strftime('%Y%m%d_%H%M')}"
-            ) as run:
+            # A. Log Context & Config
+            # Note: tracker.log_params handles flattening automatically
+            self._log_context(bp, tracker)
+            tracker.log_params(bp.model_dump(mode="json"))
 
-                self.logger.info(f"MLflow Run Started. Run ID: {run.info.run_id}")
+            # B. Load Data
+            try:
+                builder = self.factory.create_dataset_builder(bp.data)
+                raw_df = builder.get_data()
 
-                # A. Log Context (Moved INSIDE the block)
-                self._log_context(bp, run)
+                # Get the cache key string (e.g. "dataset_Alpha...hash")
+                cache_key = builder._generate_cache_key()
 
-                # B. Load Data
-                try:
-                    builder = self.factory.create_dataset_builder(bp.data)
-                    raw_df = builder.get_data()
-                except Exception as e:
-                    self.logger.error(f"Data loading failed: {e}", exc_info=True)
-                    return
+                # Log Metadata Only
+                tracker.log_dataset(raw_df, name="training_data", cache_key=cache_key)
+            except Exception as e:
+                self.logger.error(f"Data loading failed: {e}", exc_info=True)
+                return
 
-                if raw_df.is_empty():
-                    self.logger.error("Dataset is empty. Aborting.")
-                    return
+            if raw_df.is_empty():
+                self.logger.error("Dataset is empty. Aborting.")
+                return
 
-                # C. Build Processor List
-                processors = []
-                # Use getattr to safely check for 'generate_lags' on the config object
-                if getattr(bp.data, "generate_lags", False):
-                    self.logger.info("Adding TemporalFeatureProcessor to pipeline.")
-                    processors.append(TemporalFeatureProcessor())
+            # C. Build Processor List
+            processors = []
+            if getattr(bp.data, "generate_lags", False):
+                self.logger.info("Adding TemporalFeatureProcessor to pipeline.")
+                processors.append(TemporalFeatureProcessor())
 
-                # D. Initialize Pipeline
+            # D. Initialize Pipeline
+            try:
                 pipeline = HorizonPipeline(
                     model=self.factory.create_model(bp.model),
                     features=bp.data.feature_prefix_groups,
                     target=bp.data.target_column,
                     processors=processors,
                 )
+            except Exception as e:
+                self.logger.error(f"Pipeline init failed: {e}")
+                return
 
-                # E. Preprocess
-                self.logger.info("Pipeline: Preprocessing data...")
-                processed_df = pipeline.preprocess(raw_df)
+            # E. Preprocess
+            self.logger.info("Pipeline: Preprocessing data...")
+            processed_df = pipeline.preprocess(raw_df)
 
-                # F. Extract X/y
-                X, y = pipeline.get_X_y(processed_df)
-                if X.empty or y is None or y.empty:
-                    self.logger.error("Feature extraction failed.")
-                    return
+            # F. Extract X/y
+            X, y = pipeline.get_X_y(processed_df)
+            if X.empty or y is None or y.empty:
+                self.logger.error("Feature extraction failed.")
+                return
 
-                # Log Params (Safe here because we are inside the run)
-                mlflow.log_param("n_samples", X.shape[0])
-                mlflow.log_param("n_features", X.shape[1])
+            # Log Shape
+            tracker.log_params(
+                {
+                    "n_samples": X.shape[0],
+                    "n_features": X.shape[1],
+                    "feature_names_list": list(X.columns),
+                }
+            )
 
-                # G. Split
-                split_idx = int(len(X) * bp.training.time_split_ratio)
-                X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
-                y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+            tracker.log_environment()
 
-                self.logger.info(f"Train: {len(X_train)} | Val: {len(X_val)}")
+            # G. Split
+            split_idx = int(len(X) * bp.training.time_split_ratio)
+            X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
+            y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
 
-                # H. Train
-                strategy = self.factory.create_strategy(bp.training)
-                trained_model = strategy.train(
-                    pipeline.model, X_train, y_train, X_val, y_val
-                )
-                pipeline.model = trained_model
+            self.logger.info(f"Train: {len(X_train)} | Val: {len(X_val)}")
 
-                # I. Evaluate
-                evaluator = self.factory.create_evaluator(bp.training)
-                metrics = evaluator.evaluate(pipeline.model, X_val, y_val, self.logger)
-                mlflow.log_metrics(metrics)
+            tracker.log_model_signature(X_train.head(5), y_train.head(5))
+            profile_df = pl.from_pandas(X_train)
+            tracker.log_data_profile(profile_df)
 
-                # J. Feature Importance
-                self._log_feature_importance(pipeline.model, X, run)
+            # H. Train
+            strategy = self.factory.create_strategy(bp.training)
+            trained_model = strategy.train(
+                pipeline.model, X_train, y_train, X_val, y_val
+            )
+            pipeline.model = trained_model
 
-                # K. Save
-                temp_model_dir = Path("./temp_model_artifacts")
-                temp_model_dir.mkdir(exist_ok=True)
-                model_path = temp_model_dir / f"{bp.model_name}.pkl"
+            # I. Evaluate
+            evaluator = self.factory.create_evaluator(bp.training)
+            metrics = evaluator.evaluate(pipeline.model, X_val, y_val, self.logger)
+            tracker.log_metrics(metrics)
 
-                pipeline.save(model_path)
-                mlflow.log_artifact(str(model_path))
-                model_path.unlink()  # Cleanup
+            # J. Feature Importance
+            self._log_feature_importance(pipeline.model, X, tracker)
 
-                self.logger.success(f"Pipeline saved and logged.")
+            # K. Save & Log Artifact
+            temp_model_dir = Path("./temp_model_artifacts")
+            temp_model_dir.mkdir(exist_ok=True)
+            model_path = temp_model_dir / f"{bp.model_name}.pkl"
 
-        except Exception as e:
-            self.logger.exception("Training run failed")
-            raise e
+            pipeline.save(model_path)
+            tracker.log_artifact(str(model_path))
+            model_path.unlink()  # Cleanup
 
-    def _log_context(self, bp: ModelBlueprint, run):
+            self.logger.success(f"Pipeline saved and logged.")
+
+    def _log_context(self, bp, tracker):
         """Logs metadata about the run environment."""
         try:
             git_commit = (
@@ -138,24 +139,16 @@ class Trainer:
                 .decode("ascii")
                 .strip()
             )
-            mlflow.set_tag("git_commit", git_commit)
+            tracker.set_tags({"git_commit": git_commit})
         except Exception:
-            mlflow.set_tag("git_commit", "unknown")
+            tracker.set_tags({"git_commit": "unknown"})
 
-        mlflow.set_tag("user", getpass.getuser())
-        mlflow.set_tag("model_type", bp.model.type)
+        tracker.set_tags({"user": getpass.getuser(), "model_type": bp.model.type})
 
-        # Flatten and log params
-        from packages.ml_core.common.utils import flatten_dict
-
-        raw_config = bp.model_dump(mode="json")
-        flat_config = flatten_dict(raw_config)
-        mlflow.log_params(flat_config)
-
-    def _log_feature_importance(self, model, X_features: pd.DataFrame, run):
+    def _log_feature_importance(self, model, X_features, tracker):
         """Logs feature importance if the model supports it."""
         if hasattr(model, "feature_importances_"):
-            self.logger.info("Logging Feature Importance to MLflow...")
+            self.logger.info("Logging Feature Importance...")
 
             importance_df = pd.DataFrame(
                 {
@@ -164,8 +157,7 @@ class Trainer:
                 }
             ).sort_values(by="importance", ascending=False)
 
-            # Save to a temporary CSV and upload as artifact
-            imp_path = f"feature_importance_{run.info.run_id}.csv"
+            imp_path = f"feature_importance.csv"
             importance_df.to_csv(imp_path, index=False)
-            mlflow.log_artifact(imp_path)
+            tracker.log_artifact(imp_path)
             Path(imp_path).unlink()

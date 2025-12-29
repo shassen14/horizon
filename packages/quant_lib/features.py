@@ -276,11 +276,10 @@ class FeatureFactory:
     def _get_calendar_expressions(self) -> List[pl.Expr]:
         """Returns cyclic calendar features."""
         return [
-            pl.col("time").dt.weekday().alias("day_of_week"),  # 1=Mon, 7=Sun
-            pl.col("time").dt.month().alias("month_of_year"),
-            pl.col("time").dt.day().alias("day_of_month"),
-            # Quarter helps detect earnings season cyclicity
-            pl.col("time").dt.quarter().alias("quarter"),
+            pl.col("time").dt.weekday().cast(pl.Float64).alias("day_of_week"),
+            pl.col("time").dt.month().cast(pl.Float64).alias("month_of_year"),
+            pl.col("time").dt.day().cast(pl.Float64).alias("day_of_month"),
+            pl.col("time").dt.quarter().cast(pl.Float64).alias("quarter"),
         ]
 
     def _get_structural_expressions(self) -> List[pl.Expr]:
