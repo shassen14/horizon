@@ -107,7 +107,7 @@ async def main():
             settings.mlflow.db_user,
             settings.mlflow.db_password,
             settings.mlflow.db_name,
-            recreate=nuke_app,
+            recreate=nuke_mlflow,
         )
     logger.success("✅ Provisioning Complete.")
 
