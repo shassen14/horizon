@@ -11,6 +11,7 @@ from .ingestion import IngestionConfig
 from .screener import ScreenerConfig
 from .features import FeatureConfig
 from .system import SystemConfig
+from .mlflow import MLflowConfig
 
 
 # Define Project Root
@@ -20,6 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 class Settings(BaseSettings):
     # Composition: Grouping configs by domain
     db: DatabaseConfig = DatabaseConfig()
+    mlflow: MLflowConfig = MLflowConfig()
     alpaca: AlpacaConfig = AlpacaConfig()
     ingestion: IngestionConfig = IngestionConfig()
     screener: ScreenerConfig = ScreenerConfig()

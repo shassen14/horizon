@@ -33,15 +33,24 @@ async def get_db_session():
 
 
 @asynccontextmanager
-async def get_autocommit_connection():
+async def get_autocommit_connection(db_override: str = None):
     """
     Yields a raw SQLAlchemy AsyncConnection in AUTOCOMMIT mode.
-    Crucial for administrative tasks like VACUUM and CREATE DATABASE.
+    :param db_override: If set, connects to this DB instead of the main one.
+                        Use 'postgres' when creating new databases.
     """
-    # Create a fresh engine specifically for this task
-    # We use isolation_level="AUTOCOMMIT" in the engine arguments
+    # Build URL manually if overriding the DB name
+    if db_override:
+        # We assume same admin credentials, just different DB name
+        url = (
+            f"postgresql+asyncpg://{settings.db.user}:{settings.db.password}@"
+            f"{settings.db.host}:{settings.db.port}/{db_override}"
+        )
+    else:
+        url = settings.db.URL
+
     maintenance_engine = create_async_engine(
-        settings.db.URL, isolation_level="AUTOCOMMIT", echo=False
+        url, isolation_level="AUTOCOMMIT", echo=False
     )
 
     try:

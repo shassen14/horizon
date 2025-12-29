@@ -25,7 +25,6 @@ class AbstractDatasetBuilder(ABC):
         # Define Cache Directory
         self.cache_dir = Path(__file__).resolve().parents[2] / "cache"
         self.cache_dir.mkdir(exist_ok=True)
-        print(f"{self.cache_dir}")
 
     @property
     def db_url(self) -> str:
@@ -49,6 +48,7 @@ class AbstractDatasetBuilder(ABC):
             if cache_path.exists():
                 self.logger.info(f"⚡ Cache Hit! Loading from {cache_path.name}")
                 try:
+                    df = pl.read_parquet(cache_path)
                     return pl.read_parquet(cache_path)
                 except Exception as e:
                     self.logger.warning(f"Cache corrupted ({e}). Reloading from DB.")

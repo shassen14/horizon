@@ -1,0 +1,18 @@
+# /docker/horizon/.env
+# This file provides environment variables for the Docker Compose services on the central storage.
+
+# --- For the 'database' Service ---
+POSTGRES_USER=stonks
+POSTGRES_PASSWORD=really_good_password
+POSTGRES_DB=horizon_db
+
+# --- For the 'mlflow' Service ---
+# Credentials it will use to connect to the 'database' service
+MLFLOW_DB_USER=thinker
+MLFLOW_DB_PASSWORD=another_really_good_password
+MLFLOW_DB_NAME=mlflow_db
+
+# The host for the DB from MLflow's perspective is the service name 'database'
+# This is used inside the command, but we define it here for clarity.
+POSTGRES_HOST=database
+POSTGRES_PORT=5432

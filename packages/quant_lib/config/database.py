@@ -3,6 +3,7 @@ from .base import EnvConfig
 
 
 class DatabaseConfig(EnvConfig):
+    # Timescale DB
     user: str = Field(validation_alias="POSTGRES_USER", default="user")
     password: str = Field(validation_alias="POSTGRES_PASSWORD", default="password")
     host: str = Field(validation_alias="POSTGRES_HOST", default="localhost")
