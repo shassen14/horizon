@@ -12,9 +12,12 @@ from sqlalchemy import (
     DateTime,
     BigInteger,
     ForeignKey,
+    func,
     text,
 )
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.dialects.postgresql import JSONB
+
 
 # This is the base class which our model classes will inherit.
 Base = declarative_base()
@@ -204,4 +207,49 @@ class FeaturesDaily(Base):
     )
 
 
-# TODO: Add Feature and Prediction tables here later
+class Model(Base):
+    """
+    Stores metadata about a trained model family.
+    Acts as a lightweight, internal model registry.
+    """
+
+    __tablename__ = "models"
+
+    model_name = Column(
+        String, primary_key=True
+    )  # e.g., "alpha_bull", "regime_classifier"
+    model_type = Column(String, nullable=False)  # e.g., "ALPHA", "REGIME", "RISK"
+    description = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_updated = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Prediction(Base):
+    """
+    Stores the output of a model for a specific asset at a specific time.
+    Designed for high-volume writes and fast "get latest" queries.
+    """
+
+    __tablename__ = "predictions"
+
+    # --- Identifiers ---
+    time = Column(DateTime(timezone=True), nullable=False)
+    asset_id = Column(Integer, ForeignKey("asset_metadata.id"), nullable=False)
+
+    # --- Model Lineage (Human Readable) ---
+    model_name = Column(String, ForeignKey("models.model_name"), nullable=False)
+    model_version = Column(String, nullable=False)  # e.g., MLflow Run ID or Git Hash
+
+    # --- The Payload ---
+    # Flexible JSONB to store any model's output shape
+    output = Column(JSONB, nullable=False)
+
+    # --- Configuration ---
+    __table_args__ = (
+        # Composite Primary Key ensures one prediction per asset/model/version/time
+        PrimaryKeyConstraint(
+            "time", "asset_id", "model_name", "model_version", name="pk_predictions"
+        ),
+        # Performance Index for the most common query: "Get latest predictions for a model"
+        Index("idx_predictions_model_name_time", "model_name", text("time DESC")),
+    )
