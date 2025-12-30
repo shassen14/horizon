@@ -65,7 +65,7 @@ class Trainer:
             try:
                 pipeline = HorizonPipeline(
                     model=self.factory.create_model(bp.model),
-                    features=bp.data.feature_prefix_groups,
+                    feature_prefixes=bp.data.feature_prefix_groups,
                     target=bp.data.target_column,
                     processors=processors,
                 )
@@ -79,9 +79,14 @@ class Trainer:
 
             # F. Extract X/y
             X, y = pipeline.get_X_y(processed_df)
+
             if X.empty or y is None or y.empty:
                 self.logger.error("Feature extraction failed.")
                 return
+
+            # Now that we know which columns matched the prefixes, we save them.
+            # This ensures Inference always uses the exact same columns.
+            pipeline.trained_features = list(X.columns)
 
             # Log Shape
             tracker.log_params(

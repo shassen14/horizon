@@ -1,9 +1,8 @@
 # packages/ml_core/datasets/alpha.py
 
 import polars as pl
-import joblib
-from pathlib import Path
 from .base import AbstractDatasetBuilder
+from packages.ml_core.common.registry import ModelRegistryClient
 
 
 class AlphaDatasetBuilder(AbstractDatasetBuilder):
@@ -70,34 +69,38 @@ class AlphaDatasetBuilder(AbstractDatasetBuilder):
         Reconstructs market features and uses the saved Regime Classifier
         to label every day in the dataset as Bull (1) or Bear (0).
         """
-        # Determine Model Name from Config
-        model_name = self.config.regime_model_name
+        # Determine Model Name
+        model_name = self.config.regime_model_name or "regime_classifier_v1"
 
-        # Path to the artifact you just created
-        model_path = (
-            Path(__file__).resolve().parents[1] / "models" / f"{model_name}.pkl"
-        )
+        self.logger.info(f"Fetching Regime Model '{model_name}' from Registry...")
 
-        if not model_path.exists():
-            self.logger.warning("Regime model not found! Defaulting to '1' (Bull).")
-            self.logger.warning(f"model_path: {model_path}")
+        #  Use the Client (Abstracted Access)
+        registry = ModelRegistryClient(self.settings.mlflow.tracking_uri)
+
+        # We assume 'production' alias is what we want for training dependencies
+        pipeline = registry.load_pipeline(model_name, alias="production")
+
+        if not pipeline:
+            self.logger.warning(
+                f"Regime model '{model_name}@production' not found. Defaulting to Bull."
+            )
             return df.with_columns(pl.lit(1).alias("regime"))
 
         self.logger.info(f"Using regime model: {model_name}")
 
         try:
-            regime_model = joblib.load(model_path)
-
             # A. Reconstruct Regime Features (Market Breadth & Volatility)
             # We must recreate exactly what the regime model was trained on.
             market_stats = (
                 df.group_by("time")
                 .agg(
                     [
-                        (pl.col("close_price") > pl.col("sma_50"))
-                        .sum()
-                        .cast(pl.Float64)
-                        / pl.count(),  # breadth_sma50_pct
+                        (
+                            (pl.col("close_price") > pl.col("sma_50"))
+                            .sum()
+                            .cast(pl.Float64)
+                            / pl.count()
+                        ).alias("breadth_sma50_pct"),
                         pl.col("atr_14_pct").mean().alias("vol_market_avg_atr_pct"),
                     ]
                 )
@@ -110,16 +113,12 @@ class AlphaDatasetBuilder(AbstractDatasetBuilder):
                 .select(["time", "rsi_14", "zscore_20"])
                 .rename({"rsi_14": "spy_rsi_14", "zscore_20": "spy_zscore_20"})
             )
-
             # C. Join to create input vector
             regime_input = market_stats.join(spy_df, on="time", how="left").drop_nulls()
 
             # D. Predict
             # Ensure columns match training order exactly
-            feature_names = regime_model.feature_names_in_
-            X_regime = regime_input.select(feature_names).to_pandas()
-
-            regime_preds = regime_model.predict(X_regime)
+            regime_preds = pipeline.predict(regime_input)
 
             # E. Map predictions back to time
             regime_input = regime_input.with_columns(

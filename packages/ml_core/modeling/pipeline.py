@@ -14,18 +14,24 @@ class HorizonPipeline:
     def __init__(
         self,
         model: Any,
-        features: List[str],
+        feature_prefixes: List[str],
         target: str,
         processors: List[BaseProcessor] = None,
     ):
         self.model = model
         self.target_col = target
-        self.feature_cols = (
-            features  # The list of prefixes to keep (e.g. ["sma_", "rsi_"])
+        self.feature_prefixes = (
+            feature_prefixes  # The list of prefixes to keep (e.g. ["sma_", "rsi_"])
         )
+        self.trained_features: List[str] | None = None
 
         # The Pipeline owns the preprocessor
         self.processors = processors if processors else []
+
+    @property
+    def features(self) -> List[str]:
+        """Alias for feature_cols to allow easier access."""
+        return self.trained_features if self.trained_features else self.feature_prefixes
 
     def preprocess(self, df: pl.DataFrame) -> pl.DataFrame:
         """
@@ -42,6 +48,29 @@ class HorizonPipeline:
         # But for now, keeping it here as a safety net is fine.
         df = df.drop_nulls()
 
+        # 3. Enforce Float Types
+        # We convert all Integers to Floats.
+        # This ensures MLflow Signatures allow NaNs/Nulls during inference validation.
+        # It also ensures consistency between Train (which logged Float) and Serve.
+        int_cols = [
+            col
+            for col, dtype in zip(df.columns, df.dtypes)
+            if dtype
+            in (
+                pl.Int8,
+                pl.Int16,
+                pl.Int32,
+                pl.Int64,
+                pl.UInt8,
+                pl.UInt16,
+                pl.UInt32,
+                pl.UInt64,
+            )
+        ]
+
+        if int_cols:
+            df = df.with_columns([pl.col(c).cast(pl.Float64) for c in int_cols])
+
         return df
 
     def get_X_y(self, df: pl.DataFrame):
@@ -50,9 +79,28 @@ class HorizonPipeline:
         """
         # Select columns matching the configured prefixes
         all_cols = df.columns
-        selected_features = [
-            c for c in all_cols if any(c.startswith(p) for p in self.feature_cols)
-        ]
+
+        if self.trained_features:
+            # Strict Mode: We know exactly what columns we need.
+            # Check if they exist
+            missing = [c for c in self.trained_features if c not in all_cols]
+            if missing:
+                # In production, this might raise an error. For now, print warning.
+                print(
+                    f"Warning: Pipeline expects columns {missing} which are missing from input."
+                )
+
+            selected_features = [c for c in self.trained_features if c in all_cols]
+        else:
+            # Discovery Mode (First run / Training time): Use prefixes
+            selected_features = [
+                c
+                for c in all_cols
+                if any(c.startswith(p) for p in self.feature_prefixes)
+            ]
+
+        # Sort to ensure column order is always consistent for the model
+        selected_features = sorted(selected_features)
 
         X = df.select(selected_features).to_pandas()
 

@@ -36,9 +36,27 @@ class ExperimentTracker:
 
         # 2. Setup Experiment
         try:
+            # Check if experiment exists
+            experiment = mlflow.get_experiment_by_name(self.experiment_name)
+
+            if experiment is None:
+                print(
+                    f"Creating new experiment '{self.experiment_name}' with Proxy Artifacts..."
+                )
+                # Force the artifact location to be the API proxy
+                # This prevents the client from trying to write to local disk
+                mlflow.create_experiment(
+                    name=self.experiment_name, artifact_location="mlflow-artifacts:/"
+                )
+
+            # Activate it
             mlflow.set_experiment(experiment_name=self.experiment_name)
-        except Exception:
-            pass  # Handle gracefully if creation fails but set works
+
+        except Exception as e:
+            print(f"⚠️ Experiment setup failed: {e}")
+            # If server fails, we might crash here or fall back,
+            # but let's allow flow to continue to see specific errors
+            pass
 
         # 3. Zombie Killer
         if mlflow.active_run():
@@ -91,6 +109,18 @@ class ExperimentTracker:
             # Convert to pandas (zero-copy if possible) for metadata extraction
             pdf = df.to_pandas()
 
+            #  Cast Ints to Floats for MLflow Schema Safet
+            # This prevents the "Integer columns cannot represent missing values" warning.
+            # We do this only on the copy used for logging.
+            int_cols = pdf.select_dtypes(
+                include=["int64", "int32", "int16", "int8"]
+            ).columns
+            if len(int_cols) > 0:
+                # Convert to float64 to allow NaNs in MLflow's schema definition
+                pdf[int_cols] = pdf[int_cols].astype("float64")
+
+            # Create MLflow Dataset object
+            dataset = mlflow.data.from_pandas(pdf, name=name, digest=None)
             # Create MLflow Dataset object
             # This calculates a hash of the DATA CONTENT automatically.
             dataset = mlflow.data.from_pandas(
