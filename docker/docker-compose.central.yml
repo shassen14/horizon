@@ -41,12 +41,12 @@ services:
     restart: unless-stopped
     command: >
       sh -c "pip install mlflow psycopg2-binary &&
-             mlflow server --host 0.0.0.0 --port 5002 --backend-store-uri \"postgresql+psycopg2://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@database:5432/${MLFLOW_DB_NAME}\" --default-artifact-root /mlruns --serve-artifacts --cors-allowed-origins '192.168.1.*'"
+             mlflow server --host 0.0.0.0 --port 5002 --backend-store-uri \"postgresql+psycopg2://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@database:5432/${MLFLOW_DB_NAME}\" --default-artifact-root /mlartifacts --serve-artifacts --cors-allowed-origins '192.168.1.*'"
     ports:
       - "5002:5002"
     volumes:
       # This maps a folder on your central storage to the artifact root inside the container
-      - /volume1/docker/horizon_db/mlruns:/mlruns
+      - /volume1/docker/horizon_db/mlruns:/mlartifacts
     env_file: .env
     networks:
       - horizon_net
