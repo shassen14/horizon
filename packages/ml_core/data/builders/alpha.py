@@ -57,9 +57,14 @@ class AlphaDatasetBuilder(AbstractDatasetBuilder):
         horizon = self.config.target_horizon_days
 
         df = df.with_columns(
+            # The Signal: Return over N days
             ((pl.col("close_price").shift(-horizon) / pl.col("close_price")) - 1)
             .over("asset_id")
-            .alias("target_forward_return")
+            .alias("target_forward_return"),
+            # Used strictly for backtesting P&L calculation
+            ((pl.col("close_price").shift(-1) / pl.col("close_price")) - 1)
+            .over("asset_id")
+            .alias("next_day_return"),
         )
 
         return df

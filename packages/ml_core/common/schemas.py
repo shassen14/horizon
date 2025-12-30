@@ -66,9 +66,27 @@ class TrainingConfig(BaseModel):
     loss_function: str | None = None
 
 
+class BacktestConfig(BaseModel):
+    enabled: bool = False
+
+    # Explicitly define which Backtester Engine to use
+    # "alpha"  -> Uses AlphaBacktester (Ranking/Portfolio logic)
+    # "regime" -> Uses RegimeBacktester (Market Timing logic)
+    type: Literal["alpha", "regime"] = "alpha"
+
+    # Strategy Class (Only used by AlphaBacktester)
+    # e.g. "TopQuintileLongStrategy", "LongShortStrategy"
+    strategy_class: str = "TopQuintileLongStrategy"
+
+    # Financial Settings
+    initial_capital: float = 100_000.0
+    transaction_cost_bps: float = 10.0
+
+
 class ModelBlueprint(BaseModel):
     model_name: str
     description: str
     data: DataConfigType
     model: ModelConfig
     training: TrainingConfig
+    backtest: BacktestConfig = BacktestConfig()

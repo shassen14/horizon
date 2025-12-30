@@ -78,6 +78,10 @@ class RegimeDatasetBuilder(AbstractDatasetBuilder):
         # 4. Join
         final_df = market_df.join(spy_df, on="time", how="left")
 
+        final_df = final_df.with_columns(
+            pl.col("spy_close_price").pct_change().alias("spy_daily_return")
+        )
+
         # Get the horizon from the validated Pydantic config object
         horizon = self.config.target_horizon_days
         self.logger.info(f"Using target horizon of {horizon} days for regime labels.")

@@ -266,7 +266,6 @@ class IngestionEngine:
         ).replace(tzinfo=timezone.utc)
 
         sip_safe_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
-        print(sip_safe_limit)
 
         # Cap it at "Right Now" to prevent Future Query errors
         # If settled date is Today, this will cap at Now.

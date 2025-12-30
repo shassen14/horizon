@@ -77,12 +77,25 @@ class Trainer:
             self.logger.info("Pipeline: Preprocessing data...")
             processed_df = pipeline.preprocess(raw_df)
 
+            # We explicitly pull out the columns needed for backtesting.
+            # We use a list comprehension to be safe (Regime models might not have asset_id)
+            meta_cols = [c for c in ["time", "asset_id"] if c in processed_df.columns]
+
+            # Convert to Pandas immediately so it aligns with X and y (which become Pandas)
+            meta_df = processed_df.select(meta_cols).to_pandas()
+
             # F. Extract X/y
             X, y = pipeline.get_X_y(processed_df)
 
             if X.empty or y is None or y.empty:
                 self.logger.error("Feature extraction failed.")
                 return
+
+            # Ensure rows match exactly before we proceed
+            if len(X) != len(meta_df):
+                raise ValueError(
+                    f"CRITICAL ALIGNMENT ERROR: X has {len(X)} rows but Metadata has {len(meta_df)}!"
+                )
 
             # Now that we know which columns matched the prefixes, we save them.
             # This ensures Inference always uses the exact same columns.
@@ -101,8 +114,13 @@ class Trainer:
 
             # G. Split
             split_idx = int(len(X) * bp.training.time_split_ratio)
+
+            # Model Data
             X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
             y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+
+            # Metadata Sidecar
+            meta_train, meta_val = meta_df.iloc[:split_idx], meta_df.iloc[split_idx:]
 
             self.logger.info(f"Train: {len(X_train)} | Val: {len(X_val)}")
 
@@ -125,7 +143,54 @@ class Trainer:
             # J. Feature Importance
             self._log_feature_importance(pipeline.model, X, tracker)
 
-            # K. Save & Log Artifact
+            # K. Backtest (Financial Metrics - Sharpe/PnL)
+            if bp.backtest.enabled:
+
+                backtester = self.factory.create_backtester(bp.backtest)
+
+                if backtester:
+                    self.logger.info(
+                        f"Running Financial Backtest ({bp.backtest.type})..."
+                    )
+                    # 1. Generate Predictions on Validation Set
+                    # X_val is already preprocessed (has lags, selected columns).
+                    # We pass it directly to the trained internal model (LightGBM/Sklearn).
+                    preds = pipeline.model.predict(X_val)
+
+                    # 2. Reconstruct the Dataframe (Time + Asset + Target + Pred)
+                    # We combine the metadata split with the targets and predictions
+                    backtest_df = pl.from_pandas(meta_val).with_columns(
+                        [
+                            pl.Series(
+                                name="actual_return", values=y_val.values.ravel()
+                            ),
+                            pl.Series(name="prediction", values=preds),
+                        ]
+                    )
+
+                    # 3. Run Simulation
+                    bt_metrics = backtester.run(
+                        backtest_df, target_col="actual_return", pred_col="prediction"
+                    )
+
+                    # 4. Log Financial Metrics
+                    # Prefix with 'bt_' to separate from ML metrics
+                    for k, v in bt_metrics.items():
+                        if isinstance(v, (int, float)):
+                            mlflow.log_metric(f"bt_{k}", v)
+
+                    # Optional: Log the Equity Curve as a CSV artifact
+                    if "equity_curve" in bt_metrics:
+                        curve = pd.DataFrame({"equity": bt_metrics["equity_curve"]})
+                        curve.to_csv("equity_curve.csv", index=False)
+                        mlflow.log_artifact("equity_curve.csv")
+                        Path("equity_curve.csv").unlink()
+
+                    self.logger.success(
+                        f"Backtest Complete. Sharpe: {bt_metrics.get('sharpe_ratio', 0):.2f}"
+                    )
+
+            # L. Save & Log Artifact
             self.logger.info("Registering model to MLflow...")
 
             # Wrap the pipeline

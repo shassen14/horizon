@@ -1,10 +1,10 @@
 import mlflow
 import pandas as pd
+import pkg_resources
 import polars as pl
-from typing import Dict, Any
+from typing import Dict, Any, List
 from pathlib import Path
-from importlib.metadata import distributions
-from mlflow.models import infer_signature
+from mlflow.models import ModelSignature, infer_signature
 from packages.quant_lib.config import settings
 from packages.ml_core.common.utils import flatten_dict
 
@@ -39,14 +39,25 @@ class ExperimentTracker:
             # Check if experiment exists
             experiment = mlflow.get_experiment_by_name(self.experiment_name)
 
+            # Scenario 1: Experiment does NOT exist
             if experiment is None:
-                print(
-                    f"Creating new experiment '{self.experiment_name}' with Proxy Artifacts..."
-                )
-                # Force the artifact location to be the API proxy
-                # This prevents the client from trying to write to local disk
+                print(f"Creating new experiment '{self.experiment_name}'...")
                 mlflow.create_experiment(
                     name=self.experiment_name, artifact_location="mlflow-artifacts:/"
+                )
+
+            # Scenario 2: Experiment EXISTS, but has the WRONG artifact location
+            elif experiment.artifact_location != "mlflow-artifacts:/":
+                print(
+                    f"⚠️  Experiment '{self.experiment_name}' has incorrect artifact location: {experiment.artifact_location}"
+                )
+                print(
+                    f"⚠️  This can happen if it was created by an older version of the code."
+                )
+                # For now, we will NOT proceed to avoid writing to the wrong place.
+                # In a fully automated system, you might delete and recreate it here.
+                raise SystemExit(
+                    f"Exiting due to misconfigured experiment '{self.experiment_name}'."
                 )
 
             # Activate it
@@ -133,22 +144,28 @@ class ExperimentTracker:
         except Exception as e:
             print(f"⚠️ Could not log dataset metadata: {e}")
 
-    def log_environment(self):
+    def log_environment(self, dependencies: List[str]):
         """
-        Logs the current python environment dependencies.
-        Uses importlib to be package-manager agnostic (works with uv, pip, poetry).
-        Also logs uv.lock if available.
+        Logs a minimal requirements.txt file based on the config.
         """
-        # 1. Generate requirements.txt using Python internals
+        print(f"Logging minimal environment for dependencies: {dependencies}")
+
         try:
-            dists = sorted(distributions(), key=lambda d: d.metadata["Name"].lower())
-            reqs_text = "\n".join([f"{d.metadata['Name']}=={d.version}" for d in dists])
+            # Get versions for specified packages
+            installed = {pkg.key for pkg in pkg_resources.working_set}
+            reqs = []
+            for dep in dependencies:
+                if dep in installed:
+                    version = pkg_resources.get_distribution(dep).version
+                    reqs.append(f"{dep}=={version}")
+                else:
+                    reqs.append(dep)  # Add without version if not found
 
-            with open("requirements.txt", "w") as f:
-                f.write(reqs_text)
+            reqs_text = "\n".join(reqs)
 
-            self.log_artifact("requirements.txt")
-            Path("requirements.txt").unlink()
+            # Use mlflow.log_text to avoid creating local files
+            mlflow.log_text(reqs_text, "requirements.txt")
+
         except Exception as e:
             print(f"⚠️ Could not log requirements: {e}")
 
@@ -163,7 +180,9 @@ class ExperimentTracker:
         except Exception as e:
             print(f"⚠️ Could not log uv.lock: {e}")
 
-    def log_model_signature(self, X_sample: pd.DataFrame, y_sample: pd.DataFrame):
+    def log_model_signature(
+        self, X_sample: pd.DataFrame, y_sample: pd.DataFrame
+    ) -> ModelSignature | None:
         """
         Infers the model's input/output schema and logs it as a JSON artifact.
         Useful for validating inputs during inference later.
@@ -194,9 +213,12 @@ class ExperimentTracker:
             # mlflow.log_dict automatically creates the file and uploads it
             mlflow.log_dict(sig_dict, "model_signature.json")
 
+            return signature
+
         except Exception as e:
             # Don't crash training if schema inference fails (e.g. complex types)
             print(f"⚠️ Could not infer/log model signature: {e}")
+            return None
 
     def log_data_profile(self, df: pl.DataFrame):
         """Logs basic statistics about the training data."""
