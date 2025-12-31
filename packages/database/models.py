@@ -220,6 +220,7 @@ class Model(Base):
     )  # e.g., "alpha_bull", "regime_classifier"
     model_type = Column(String, nullable=False)  # e.g., "ALPHA", "REGIME", "RISK"
     description = Column(String)
+    meta = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_updated = Column(DateTime(timezone=True), onupdate=func.now())
 
