@@ -19,9 +19,9 @@ class FeatureEngine:
         self.active_assets_map: dict[int, str] = {}
         self.concurrency_limiter = asyncio.Semaphore(5)
 
-        # Buffer: How far back to read to ensure SMAs/EMAs are accurate.
-        # 300 days covers SMA_200 + EMA convergence.
-        self.LOOKBACK_BUFFER_DAYS = 300
+        # Calculation: 252 trading days * 1.4 (weekends) + buffer = ~400.
+        # We use 500 to be extremely safe for EMA convergence.
+        self.LOOKBACK_BUFFER_DAYS = 500
 
     async def run(self, force_full: bool = False, symbol: str | None = None):
         """
