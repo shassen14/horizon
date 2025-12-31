@@ -254,3 +254,71 @@ class Prediction(Base):
         # Performance Index for the most common query: "Get latest predictions for a model"
         Index("idx_predictions_model_name_time", "model_name", text("time DESC")),
     )
+
+
+# class TradeSignal(Base):
+#     __tablename__ = "trade_signals"
+
+#     id = Column(Integer, primary_key=True, index=True)
+#     generated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+#     # Context
+#     asset_id = Column(Integer, ForeignKey("asset_metadata.id"), nullable=False)
+
+#     # Why are we trading? (Traceability)
+#     model_name = Column(String)  # e.g. "horizon_alpha"
+#     signal_type = Column(String)  # "REBALANCE", "STOP_LOSS", "ENTRY"
+
+#     # The Order
+#     direction = Column(String)  # "BUY", "SELL"
+#     quantity = Column(Float)  # Number of shares
+#     target_weight = Column(Float)  # The desired % of portfolio
+
+#     # The Lifecycle
+#     status = Column(
+#         String, default="PENDING"
+#     )  # PENDING, SENT, FILLED, REJECTED, EXPIRED
+#     filled_at = Column(DateTime(timezone=True))
+#     filled_price = Column(Float)
+
+#     # Metadata (e.g. limit price, stop price)
+#     meta = Column(JSONB)
+
+
+# class TradeLog(Base):
+#     __tablename__ = "trade_log"
+
+#     id = Column(Integer, primary_key=True)
+#     timestamp = Column(DateTime(timezone=True), nullable=False)
+
+#     asset_id = Column(Integer, ForeignKey("asset_metadata.id"))
+
+#     # What actually happened
+#     action = Column(String)  # "BUY", "SELL"
+#     quantity = Column(Float)
+#     price = Column(Float)
+#     commission = Column(Float, default=0.0)
+
+#     # Link back to the signal (Optional but recommended)
+#     signal_id = Column(Integer, ForeignKey("trade_signals.id"), nullable=True)
+
+#     # Broker info (Order ID from Alpaca)
+#     broker_order_id = Column(String)
+
+
+# class PortfolioState(Base):
+#     __tablename__ = "portfolio_state"
+
+#     # Composite Key: Snapshot time + Asset
+#     # Recommendation: Keep history.
+
+#     time = Column(DateTime(timezone=True), primary_key=True)
+#     asset_id = Column(Integer, ForeignKey("asset_metadata.id"), primary_key=True)
+
+#     quantity = Column(Float)
+#     cost_basis = Column(Float)
+#     current_price = Column(Float)
+#     market_value = Column(Float)
+#     unrealized_pnl = Column(Float)
+
+#     # Also useful: A separate table for "AccountSummary" (Cash, Buying Power, Total Equity)
