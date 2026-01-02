@@ -44,6 +44,27 @@ class IngestionEngine:
         # It balances RAM usage (DataFrame buffers) vs CPU/IO throughput.
         self.concurrency_limiter = asyncio.Semaphore(5)
 
+    async def load_existing_assets(self):
+        """
+        Loads currently active assets from the database without running the screener.
+        Useful for data sources (like YFinance) that cannot scan for new tickers.
+        """
+        self.logger.info("Loading existing active assets from database...")
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(Asset.id, Asset.symbol)
+                .where(Asset.is_active == True)
+                .order_by(Asset.symbol)
+            )
+            self.active_assets_map = {row[0]: row[1] for row in result}
+
+        if not self.active_assets_map:
+            self.logger.warning(
+                "No active assets found in DB. Run with --source alpaca first to populate metadata."
+            )
+        else:
+            self.logger.info(f"Loaded {len(self.active_assets_map)} assets.")
+
     async def run_metadata_sync(self):
         """
         Smart Metadata Sync:
@@ -237,7 +258,7 @@ class IngestionEngine:
             f"Metadata complete. {len(self.active_assets_map)} active assets loaded."
         )
 
-    async def run_daily_ingestion(self):
+    async def run_daily_ingestion(self, end_date_override: datetime = None):
         self.logger.info("--- Phase 2: Daily Data Ingestion (Concurrent) ---")
 
         # Lazy load assets
@@ -270,8 +291,16 @@ class IngestionEngine:
         # Cap it at "Right Now" to prevent Future Query errors
         # If settled date is Today, this will cap at Now.
         # If settled date is Yesterday, 'Now' is likely greater, so we keep Yesterday 23:59.
-        end_dt = min(theoretical_end, sip_safe_limit)
-        default_start = end_dt - timedelta(days=settings.ingestion.default_history_days)
+        if end_date_override:
+            # Ensure UTC
+            end_dt = ensure_utc_timestamp(end_date_override)
+            self.logger.info(f"Forcing End Date: {end_dt.date()}")
+        else:
+            end_dt = min(theoretical_end, sip_safe_limit)
+
+        default_start = datetime.strptime(
+            settings.ingestion.default_history_start_date, "%Y-%m-%d"
+        ).replace(tzinfo=timezone.utc)
 
         trading_schedule = self.clock.get_schedule(default_start.date(), end_dt.date())
 

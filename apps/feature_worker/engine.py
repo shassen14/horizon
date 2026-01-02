@@ -3,8 +3,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 import polars as pl
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func, select, text
 
 from packages.quant_lib.config import settings
 from packages.quant_lib.features import FeatureFactory
@@ -23,6 +22,10 @@ class FeatureEngine:
         # We use 500 to be extremely safe for EMA convergence.
         self.LOOKBACK_BUFFER_DAYS = 500
 
+        self.processed_count = 0
+        self.total_assets = 0
+        self._counter_lock = asyncio.Lock()  # Use asyncio.Lock
+
     async def run(self, force_full: bool = False, symbol: str | None = None):
         """
         Main entry point.
@@ -33,6 +36,9 @@ class FeatureEngine:
 
         if not self.active_assets_map:
             return
+
+        self.total_assets = len(self.active_assets_map)
+        self.processed_count = 0
 
         # Load benchmark data (SPY) once for relative calculations across all time
         self.logger.info("Loading Benchmark (SPY) data...")
@@ -59,6 +65,10 @@ class FeatureEngine:
             await asyncio.gather(*tasks)
 
         self.logger.success("Feature generation complete for all active assets.")
+
+        if force_full:
+            self.logger.info("Re-compressing data...")
+            await self._manage_compression(disable=False)
 
     async def _load_active_assets(self, specific_symbol: str | None = None):
         """
@@ -145,9 +155,17 @@ class FeatureEngine:
                 return
 
             # 6. Write to DB
-            await self._write_features_to_db(features_df)
+            rows_written = await self._write_features_to_db(features_df)
 
-            self.logger.info(f"{symbol}: Wrote {len(features_df)} new rows.")
+            async with self._counter_lock:
+                self.processed_count += 1
+
+            # Only log every 25 assets
+            if self.processed_count % 25 == 0:
+                progress_pct = (self.processed_count / self.total_assets) * 100
+                self.logger.info(
+                    f"Progress: {self.processed_count}/{self.total_assets} ({progress_pct:.1f}%) | Last: Wrote {rows_written} for {symbol}."
+                )
 
     async def _get_last_feature_date(self, asset_id: int) -> datetime | None:
         """Finds the timestamp of the most recent entry in features_daily."""
@@ -197,78 +215,79 @@ class FeatureEngine:
             return pl.DataFrame()
 
     async def _write_features_to_db(self, df: pl.DataFrame):
-        """Upserts a DataFrame of features into the features_daily table."""
+        """
+        High-Performance Upsert using a Temp Table + COPY.
+        """
         if df.is_empty():
             return
 
-        # 1. Identify valid columns
+        # 1. Prepare Columns
         model_columns = {c.name for c in FeaturesDaily.__table__.columns}
         df_columns = set(df.columns)
-        columns_to_insert = list(model_columns.intersection(df_columns))
+        valid_cols = list(model_columns.intersection(df_columns))
 
-        # Polars treats NaN and Null differently. We want to convert NaNs to Nulls.
-        # This ensures Postgres gets NULL, which it handles correctly in aggregates.
-        exprs = []
-        for col_name in columns_to_insert:
+        clean_exprs = []
+        for col_name in valid_cols:
             dtype = df[col_name].dtype
 
-            # Only Floats support NaN.
-            # Integers (asset_id) and Datetimes (time) throws error if we check for NaN.
+            # Floats can be NaN, so we clean them
             if dtype in (pl.Float64, pl.Float32):
-                exprs.append(pl.col(col_name).fill_nan(None))
+                clean_exprs.append(pl.col(col_name).fill_nan(None))
             else:
-                # Pass other columns (time, asset_id) through unchanged
-                exprs.append(pl.col(col_name))
+                # Pass other types (time, asset_id, etc.) through unchanged
+                clean_exprs.append(pl.col(col_name))
 
-        df_clean = df.select(exprs)
+        # Convert NaNs to Nulls
+        df_clean = df.select(clean_exprs)
 
-        # Prepare records
-        records = df_clean.to_dicts()
+        # Prepare for COPY
+        records = list(df_clean.select(valid_cols).iter_rows())
 
         if not records:
             return
 
-        # 2. Dynamic Chunk Sizing
-        # POSTGRES LIMIT: 32,767 (Signed 16-bit integer).
-        # We use 30,000 to provide a safety buffer.
-        POSTGRES_PARAM_LIMIT = 30_000
-        num_columns = len(columns_to_insert)
-
-        # Calculate safe chunk size: 30,000 / 30 cols = 1,000 rows
-        safe_chunk_size = POSTGRES_PARAM_LIMIT // num_columns
-
-        # Clamp it to something reasonable (e.g., at least 1, max 10k)
-        safe_chunk_size = max(1, min(10_000, safe_chunk_size))
-
-        self.logger.debug(
-            f"Dynamic Write: {num_columns} cols -> Chunk size {safe_chunk_size}"
-        )
-
+        # 2. Staging & COPY
         async with get_db_session() as session:
-            # Upsert Statement Setup
-            stmt = insert(FeaturesDaily).values(records)
-            update_dict = {
-                col.name: col
-                for col in stmt.excluded
-                if col.name not in ["time", "asset_id"]
-            }
+            # Get raw connection
+            conn = await session.connection()
+            dbapi_conn = await conn.get_raw_connection()
+            asyncpg_conn = dbapi_conn.driver_connection
 
-            # 3. Execution Loop
-            total_records = len(records)
-            for i in range(0, total_records, safe_chunk_size):
-                chunk = records[i : i + safe_chunk_size]
+            # Create Temp Table
+            temp_table = "temp_features_upsert"
+            target_table = FeaturesDaily.__tablename__
 
-                # We reconstruct the insert statement for the chunk
-                # (SQLAlchemy insert objects are reusable but values binding is cleaner this way)
-                stmt = insert(FeaturesDaily).values(chunk)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["time", "asset_id"],
-                    set_=update_dict,
+            await session.execute(
+                text(
+                    f'CREATE TEMP TABLE {temp_table} (LIKE "{target_table}") ON COMMIT DROP;'
                 )
+            )
 
-                await session.execute(stmt)
-                await session.commit()
+            # COPY data into it (Fast)
+            await asyncpg_conn.copy_records_to_table(
+                temp_table, records=records, columns=valid_cols
+            )
 
-        self.logger.success(
-            f"Successfully upserted {len(records)} feature rows (Chunk size: {safe_chunk_size})."
-        )
+            # 3. UPSERT from Temp to Real
+            # This is the "INSERT ... ON CONFLICT DO UPDATE" command
+
+            # List of columns for INSERT
+            cols_str = ", ".join([f'"{c}"' for c in valid_cols])
+
+            # List of columns to UPDATE
+            # (All columns except the primary keys 'time', 'asset_id')
+            update_cols = [c for c in valid_cols if c not in ["time", "asset_id"]]
+            update_set_str = ", ".join([f'"{c}" = EXCLUDED."{c}"' for c in update_cols])
+
+            upsert_query = f"""
+                INSERT INTO "{target_table}" ({cols_str})
+                SELECT {cols_str} FROM {temp_table}
+                ON CONFLICT (time, asset_id) DO UPDATE
+                SET {update_set_str};
+            """
+
+            await session.execute(text(upsert_query))
+            await session.commit()
+
+        # self.logger.success(f"Successfully upserted {len(records)} feature rows.")
+        return len(records)

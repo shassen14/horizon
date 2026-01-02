@@ -19,6 +19,7 @@ alpaca-py               # Official SDK for Alpaca data source
 aiolimiter              # For async-native rate limiting in the ingest worker
 pandas                  # Required for compatibility with some ML libraries (LightGBM, scikit-learn)
 pandas_market_calendars # For market holiday and trading day calculations
+yfinance
 
 # --- Database ---
 sqlalchemy[asyncio] # Core ORM and SQL toolkit

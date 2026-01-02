@@ -14,6 +14,8 @@ class IngestionConfig(EnvConfig):
 
     # Defaults
     default_history_days: int = 3653  # 10 years
+    # Fixed date string (ISO format)
+    default_history_start_date: str = "2016-01-01"
 
     # Intraday
     intraday_timeframe_unit: Literal["Minute", "Hour"] = "Minute"
