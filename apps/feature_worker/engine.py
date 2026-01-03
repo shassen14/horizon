@@ -291,3 +291,54 @@ class FeatureEngine:
 
         # self.logger.success(f"Successfully upserted {len(records)} feature rows.")
         return len(records)
+
+    async def _manage_compression(self, disable: bool):
+        """
+        Manages TimescaleDB compression for the features table.
+        disable=True: Decompresses ALL chunks.
+        disable=False: Triggers the background policy job to re-compress.
+        """
+        table_name = FeaturesDaily.__tablename__
+
+        async with get_db_session() as session:
+            if disable:
+                self.logger.warning(
+                    f"Preparing for --force: Decompressing '{table_name}' chunks..."
+                )
+
+                # This query finds all compressed chunks for the table and decompresses them.
+                query = text(
+                    f"""
+                    SELECT decompress_chunk(c.chunk_schema || '.' || c.chunk_name)
+                    FROM timescaledb_information.chunks c
+                    WHERE c.hypertable_name = '{table_name}' AND c.is_compressed = TRUE;
+                """
+                )
+
+                try:
+                    await session.execute(query)
+                    await session.commit()
+                    self.logger.success("Decompression complete.")
+                except Exception as e:
+                    self.logger.error(f"Failed to decompress chunks: {e}")
+            else:
+                # Re-enable / Run Policy
+                self.logger.info(
+                    f"Triggering background compression for '{table_name}'..."
+                )
+
+                # This command forces the policy job to run now instead of waiting for its schedule.
+                query = text(
+                    f"""
+                    SELECT run_job(job_id)
+                    FROM timescaledb_information.jobs
+                    WHERE proc_name = 'policy_compression' AND hypertable_name = '{table_name}';
+                """
+                )
+
+                try:
+                    await session.execute(query)
+                    await session.commit()
+                    self.logger.success("Compression job triggered.")
+                except Exception as e:
+                    self.logger.warning(f"Could not trigger compression job: {e}")
