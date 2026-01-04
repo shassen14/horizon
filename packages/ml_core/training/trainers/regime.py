@@ -35,6 +35,9 @@ class RegimeTrainer(BaseTrainer):
         # 3. Preprocess
         processed_df = pipeline.preprocess(raw_df)
 
+        self.logger.info(f"DataFrame Columns: {processed_df.columns}")
+        self.logger.info(f"Config Prefixes: {bp.data.feature_prefix_groups}")
+
         # 4. Metadata (Regime needs specific return column for backtest)
         # We look for 'spy_daily_return' which the Builder provided
         meta_cols = ["time"]
@@ -43,6 +46,7 @@ class RegimeTrainer(BaseTrainer):
 
         meta_df = processed_df.select(meta_cols).to_pandas()
 
+        self.logger.info(f"Available columns: {processed_df.columns}")
         # 5. Extract X/y
         X, y = pipeline.get_X_y(processed_df)
         pipeline.trained_features = list(X.columns)

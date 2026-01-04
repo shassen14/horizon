@@ -2,7 +2,7 @@
 
 import joblib
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Dict, List
 import polars as pl
 import mlflow.pyfunc
 import pandas as pd
@@ -23,10 +23,10 @@ class HorizonPipeline:
         self.feature_prefixes = (
             feature_prefixes  # The list of prefixes to keep (e.g. ["sma_", "rsi_"])
         )
-        self.trained_features: List[str] | None = None
-
-        # The Pipeline owns the preprocessor
         self.processors = processors if processors else []
+        self.trained_features: List[str] | None = None
+        self.run_id: str | None = None
+        self.metadata: Dict[str, Any] = {}
 
     @property
     def features(self) -> List[str]:
@@ -43,10 +43,26 @@ class HorizonPipeline:
             # print(f"Running processor: {type(proc).__name__}")
             df = proc.transform(df)
 
-        # 2. Cleaning (Drop warmup rows caused by lags)
-        # Note: We might want to make 'DropNulls' its own explicit processor later
-        # But for now, keeping it here as a safety net is fine.
-        df = df.drop_nulls()
+        # Resolve features: use trained features if available, else prefixes
+        if self.trained_features:
+            relevant_cols = [c for c in self.trained_features if c in df.columns]
+        else:
+            # Discovery mode: Find columns matching prefixes
+            relevant_cols = [
+                c
+                for c in df.columns
+                if any(c.startswith(p) for p in self.feature_prefixes)
+            ]
+
+        # Add target to the check list if it exists
+        if self.target_col in df.columns:
+            relevant_cols.append(self.target_col)
+
+        if relevant_cols:
+            df = df.drop_nulls(subset=relevant_cols)
+        else:
+            # Fallback if no cols matched (shouldn't happen)
+            df = df.drop_nulls()
 
         # 3. Enforce Float Types
         # We convert all Integers to Floats.

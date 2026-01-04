@@ -10,6 +10,9 @@ class BaseDataConfig(BaseModel):
     start_date: str | None = None
     end_date: str | None = None
     feature_prefix_groups: List[str] = []
+    # A list of strings/substrings. Any feature name containing one of these
+    # will be excluded from the final feature set.
+    feature_exclude_patterns: List[str] = []
 
     # Caching
     use_cache: bool = True

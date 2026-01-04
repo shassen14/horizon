@@ -1,3 +1,4 @@
+# Dockerfile
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim-bookworm
 
@@ -41,8 +42,8 @@ COPY packages/ ./packages/
 
 # 5. Install Dependencies & Local Packages
 RUN uv pip install --system -r requirements.in
-RUN uv pip install --system -e ./packages/database
-RUN uv pip install --system -e ./packages/quant_lib
+# RUN uv pip install --system -e ./packages/database
+# RUN uv pip install --system -e ./packages/quant_lib
 # RUN uv pip install --system -e ./packages/ml_core
 
 # 6. Copy Application Code

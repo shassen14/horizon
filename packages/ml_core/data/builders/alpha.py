@@ -25,6 +25,20 @@ class AlphaDatasetBuilder(AbstractDatasetBuilder):
 
         try:
             df = pl.read_database_uri(query, self.db_url)
+
+            #  Price > $5
+            df = df.filter(pl.col("close_price") >= 5.0)
+
+            # Not a massive crash (Down < 75%)
+            # Ensure column exists first
+            if "high_252_pct" in df.columns:
+                df = df.filter(pl.col("high_252_pct") > -0.75)
+
+            # Liquidity
+            if "volume_adv_20" in df.columns:
+                df = df.filter(
+                    (pl.col("close_price") * pl.col("volume_adv_20")) > 2_000_000
+                )
         except Exception as e:
             self.logger.error(f"DB Error: {e}")
             return pl.DataFrame()
@@ -115,9 +129,20 @@ class AlphaDatasetBuilder(AbstractDatasetBuilder):
             # B. Get SPY Features
             spy_df = (
                 df.filter(pl.col("symbol") == "SPY")
-                .select(["time", "rsi_14", "zscore_20"])
-                .rename({"rsi_14": "spy_rsi_14", "zscore_20": "spy_zscore_20"})
+                .select(["time", "rsi_14", "zscore_20", "close_price"])
+                .rename(
+                    {
+                        "rsi_14": "spy_rsi_14",
+                        "zscore_20": "spy_zscore_20",
+                        "close_price": "spy_close",
+                    }
+                )
             )
+
+            spy_df = spy_df.with_columns(
+                pl.col("spy_close").pct_change().alias("spy_daily_return")
+            )
+
             # C. Join to create input vector
             regime_input = market_stats.join(spy_df, on="time", how="left").drop_nulls()
 

@@ -42,6 +42,49 @@ class BaseTrainer(ABC):
 
                 # 3. Log all post-training artifacts
                 if pipeline:
+                    # 1. Lineage
+                    pipeline.run_id = tracker.get_run_id()
+
+                    # 2. Descriptive Metadata (From Blueprint)
+                    pipeline.metadata["description"] = self.blueprint.description
+                    pipeline.metadata["model_type"] = self.blueprint.model.type
+
+                    # 3. Data Context (From Polymorphic Config)
+                    # Convert the Pydantic model to a dict to access fields safely
+                    # regardless of whether it is AlphaDataConfig or RegimeDataConfig
+                    data_conf = self.blueprint.data.model_dump()
+
+                    # Store target column name (e.g. "target_forward_return")
+                    pipeline.metadata["prediction_target"] = (
+                        self.blueprint.data.target_column
+                    )
+
+                    # Extract Horizon (if present)
+                    if "target_horizon_days" in data_conf:
+                        days = data_conf["target_horizon_days"]
+                        pipeline.metadata["horizon_days"] = days
+                        # Add a human-readable label for the UI
+                        # e.g. "3-Month Return" or "1-Week Return"
+                        pipeline.metadata["display_target"] = (
+                            f"{days//21}-Month Return"
+                            if days >= 21
+                            else f"{days}-Day Return"
+                        )
+
+                    # Extract Regime (if present)
+                    if "filter_regime" in data_conf:
+                        regime_val = data_conf["filter_regime"]
+                        # Make it readable (assuming 1=Bull, 0=Bear)
+                        label = (
+                            "Bull"
+                            if regime_val == 1
+                            else "Bear" if regime_val == 0 else "All"
+                        )
+                        pipeline.metadata["training_regime"] = label
+                        pipeline.metadata["regime_id"] = regime_val
+
+                    self.logger.info(f"Pipeline Metadata attached: {pipeline.metadata}")
+
                     self._log_artifacts(
                         tracker, pipeline, X_train, y_train, X_val, y_val
                     )

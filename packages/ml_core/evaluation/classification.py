@@ -1,5 +1,6 @@
 # packages/ml_core/evaluation/classification.py
 
+import numpy as np
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -21,28 +22,64 @@ class ClassificationEvaluator(EvaluationStrategy):
         logger.info("--- Using ClassificationEvaluator ---")
 
         # 1. Get Predictions
-        # .predict() gives the class (0 or 1)
         predictions = model.predict(X_test)
-        # .predict_proba() gives the probability, needed for AUC
-        # We take the probability of the "positive" class (class 1)
-        probabilities = model.predict_proba(X_test)[:, 1]
 
-        # 2. Calculate Key Metrics
+        # 2. Get Unique Labels
+        # We need to know all possible labels the model was trained on
+        # and all labels that actually appear in our test set.
+        model_labels = model.classes_
+        test_labels = np.unique(y_test)
+
+        # The full universe of labels for scoring
+        all_labels = np.union1d(model_labels, test_labels)
+
+        n_classes = len(all_labels)
+
+        logger.info(
+            f"Model trained on classes: {model_labels}. Test set has classes: {test_labels}."
+        )
+
+        # 3. Handle Probabilities
+        if hasattr(model, "predict_proba"):
+            probs = model.predict_proba(X_test)
+        else:
+            probs = None
+
+        # 4. Calculate Metrics (Dynamic)
+        if n_classes <= 2:
+            avg_method = "binary"
+            roc_auc = 0.5
+            if probs is not None:
+                # Binary: prob of positive class (Class 1)
+                roc_auc = roc_auc_score(y_test, probs[:, 1])
+        else:
+            # Multi-class
+            avg_method = "weighted"
+            roc_auc = 0.5
+            if probs is not None:
+                # --- THE FIX: Pass the 'labels' parameter ---
+                # This tells roc_auc_score the full context of possible classes,
+                # even if some are missing from y_test.
+                roc_auc = roc_auc_score(
+                    y_test,
+                    probs,
+                    multi_class="ovr",
+                    average="weighted",
+                    labels=all_labels,
+                )
+
         accuracy = accuracy_score(y_test, predictions)
-        precision = precision_score(y_test, predictions)
-        recall = recall_score(y_test, predictions)
-        roc_auc = roc_auc_score(y_test, probabilities)
+        precision = precision_score(
+            y_test, predictions, average=avg_method, labels=all_labels, zero_division=0
+        )
+        recall = recall_score(
+            y_test, predictions, average=avg_method, labels=all_labels, zero_division=0
+        )
 
         logger.info(f"Accuracy:  {accuracy:.4f}")
-        logger.info(
-            f"Precision: {precision:.4f} (Of all 'Bull' predictions, how many were correct?)"
-        )
-        logger.info(
-            f"Recall:    {recall:.4f} (Of all actual 'Bull' markets, how many did we catch?)"
-        )
-        logger.info(
-            f"ROC AUC:   {roc_auc:.4f} (Overall model skill, 0.5 is random, 1.0 is perfect)"
-        )
+        logger.info(f"Precision: {precision:.4f} (Weighted)")
+        logger.info(f"Recall:    {recall:.4f} (Weighted)")
+        logger.info(f"ROC AUC:   {roc_auc:.4f} (Weighted)")
 
         # 3. Display Confusion Matrix
         # [[True Negative, False Positive],
