@@ -1,6 +1,5 @@
-# packages/ml_core/pipeline.py
-
 import joblib
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 import polars as pl
@@ -8,6 +7,9 @@ import mlflow.pyfunc
 import pandas as pd
 
 from packages.ml_core.data.processors.base import BaseProcessor
+
+# Import LogManager to create loggers on the fly (Pickle-safe)
+from packages.quant_lib.logging import LogManager
 
 
 class HorizonPipeline:
@@ -17,110 +19,105 @@ class HorizonPipeline:
         feature_prefixes: List[str],
         target: str,
         processors: List[BaseProcessor] = None,
+        exclude_patterns: List[str] = None,
     ):
         self.model = model
         self.target_col = target
-        self.feature_prefixes = (
-            feature_prefixes  # The list of prefixes to keep (e.g. ["sma_", "rsi_"])
-        )
+        self.feature_prefixes = feature_prefixes
+        self.exclude_patterns = exclude_patterns if exclude_patterns else []
         self.processors = processors if processors else []
+
         self.trained_features: List[str] | None = None
         self.run_id: str | None = None
         self.metadata: Dict[str, Any] = {}
 
     @property
     def features(self) -> List[str]:
-        """Alias for feature_cols to allow easier access."""
         return self.trained_features if self.trained_features else self.feature_prefixes
 
     def preprocess(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Runs the data through the chain of processors sequentially.
-        """
-        # 1. Run chain
+        # 1. Run Processors (Add Lags, etc)
         for proc in self.processors:
-            # Optional: Add logging here for observability
-            # print(f"Running processor: {type(proc).__name__}")
             df = proc.transform(df)
 
-        # Resolve features: use trained features if available, else prefixes
-        if self.trained_features:
-            relevant_cols = [c for c in self.trained_features if c in df.columns]
-        else:
-            # Discovery mode: Find columns matching prefixes
-            relevant_cols = [
-                c
-                for c in df.columns
-                if any(c.startswith(p) for p in self.feature_prefixes)
-            ]
-
-        # Add target to the check list if it exists
-        if self.target_col in df.columns:
-            relevant_cols.append(self.target_col)
-
-        if relevant_cols:
-            df = df.drop_nulls(subset=relevant_cols)
-        else:
-            # Fallback if no cols matched (shouldn't happen)
-            df = df.drop_nulls()
-
-        # 3. Enforce Float Types
-        # We convert all Integers to Floats.
-        # This ensures MLflow Signatures allow NaNs/Nulls during inference validation.
-        # It also ensures consistency between Train (which logged Float) and Serve.
+        # 2. Enforce Float Types (for Int columns that aren't target)
         int_cols = [
             col
             for col, dtype in zip(df.columns, df.dtypes)
-            if dtype
-            in (
-                pl.Int8,
-                pl.Int16,
-                pl.Int32,
-                pl.Int64,
-                pl.UInt8,
-                pl.UInt16,
-                pl.UInt32,
-                pl.UInt64,
-            )
+            if dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64)
+            and col != self.target_col
         ]
-
         if int_cols:
             df = df.with_columns([pl.col(c).cast(pl.Float64) for c in int_cols])
+
+        # 3. Clean Rows
+        if self.target_col in df.columns:
+            df = df.drop_nulls(subset=[self.target_col])
 
         return df
 
     def get_X_y(self, df: pl.DataFrame):
-        """
-        Extracts features (X) and target (y) from a processed DataFrame.
-        """
-        # Select columns matching the configured prefixes
+        # Instantiate logger here to avoid pickling issues
+        logger = LogManager("horizon-pipeline", debug=True).get_logger("selector")
+
         all_cols = df.columns
 
         if self.trained_features:
-            # Strict Mode: We know exactly what columns we need.
-            # Check if they exist
-            missing = [c for c in self.trained_features if c not in all_cols]
-            if missing:
-                # In production, this might raise an error. For now, print warning.
-                print(
-                    f"Warning: Pipeline expects columns {missing} which are missing from input."
-                )
-
+            # Production Mode: Exact Match
             selected_features = [c for c in self.trained_features if c in all_cols]
         else:
-            # Discovery Mode (First run / Training time): Use prefixes
-            selected_features = [
+            # Training Mode: Discovery
+
+            # A. Include based on prefixes
+            included = {
                 c
                 for c in all_cols
                 if any(c.startswith(p) for p in self.feature_prefixes)
-            ]
+            }
 
-        # Sort to ensure column order is always consistent for the model
-        selected_features = sorted(selected_features)
+            # LOG CANDIDATES
+            # logger.info(f"Candidates (matched prefixes): {sorted(list(included))}")
+
+            # B. Exclude based on patterns
+            excluded = set()
+            if self.exclude_patterns:
+                patterns = []
+                for p in self.exclude_patterns:
+
+                    # CASE 1: Pure Numbers (e.g. "50", "63")
+                    # We use strict boundaries to prevent "20" killing "200"
+                    if p.isdigit():
+                        # Matches "_60" or "_60_" (Snake case suffix)
+                        patterns.append(re.compile(rf".*_{p}($|_)"))
+                        # Matches "sma50" or "sma50_" (Letter-Number suffix)
+                        patterns.append(re.compile(rf".*[a-z]{p}($|_)"))
+
+                    # CASE 2: Named Patterns (e.g. "return_5", "adx_")
+                    # We use aggressive substring matching
+                    else:
+                        patterns.append(re.compile(rf".*{re.escape(p)}.*"))
+
+                for col in included:
+                    if any(pat.match(col) for pat in patterns):
+                        excluded.add(col)
+
+            if excluded:
+                logger.warning(f"✂️  Dropped {len(excluded)} features via exclusion:")
+                logger.warning(f"    {sorted(list(excluded))}")
+
+            selected_features = sorted(list(included - excluded))
+
+            # LOG FINAL
+            logger.info(f"✅ Final Feature Selection ({len(selected_features)}):")
+            logger.info(f"    {selected_features}")
+
+        if not selected_features:
+            raise ValueError(
+                f"No feature columns selected! Prefixes: {self.feature_prefixes}, Excluded: {self.exclude_patterns}"
+            )
 
         X = df.select(selected_features).to_pandas()
 
-        # Handle Target (might not exist during live inference)
         y = None
         if self.target_col in df.columns:
             y = df.select(self.target_col).to_pandas()
@@ -128,20 +125,9 @@ class HorizonPipeline:
         return X, y
 
     def predict(self, df: pl.DataFrame):
-        """
-        End-to-End Inference: Raw Data -> Prediction
-        """
-        # 1. Transform (Add Lags)
-        # Note: We do NOT drop nulls here, because we want to predict
-        # on the last row even if previous history is partial,
-        # assuming the preprocessor handles it safely (or we trim carefully).
         for proc in self.processors:
             df = proc.transform(df)
-
-        # 2. Extract X
         X, _ = self.get_X_y(df)
-
-        # 3. Predict
         return self.model.predict(X)
 
     def save(self, path: Path):
@@ -153,23 +139,12 @@ class HorizonPipeline:
 
 
 class HorizonMLflowWrapper(mlflow.pyfunc.PythonModel):
-    """
-    Adapter to make HorizonPipeline compatible with MLflow Registry.
-    """
-
     def __init__(self, pipeline: HorizonPipeline):
         self.pipeline = pipeline
 
     def predict(self, context, model_input: pd.DataFrame):
-        """
-        MLflow standard inference method.
-        model_input: Usually a Pandas DataFrame coming from the API or UI.
-        """
-        # 1. Convert Input to Polars (if it isn't already)
         if isinstance(model_input, pd.DataFrame):
             df = pl.from_pandas(model_input)
         else:
             df = model_input
-
-        # 2. Delegate to the actual pipeline
         return self.pipeline.predict(df)

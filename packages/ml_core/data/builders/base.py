@@ -66,22 +66,24 @@ class AbstractDatasetBuilder(ABC):
     def _generate_cache_key(self) -> str:
         """
         Creates a deterministic hash based on the DataConfig.
-        If you change start_date, regime, or builder, the hash changes.
+        Excludes 'Selection' logic (prefixes/patterns) so that changing features
+        doesn't invalidate the cached dataset artifact.
         """
         if self.config.cache_tag:
             return f"custom_{self.config.cache_tag}"
 
         # 1. Dump the Pydantic model to a dict
-        # exclude_defaults=False ensures we capture everything relevant
         config_dict = self.config.model_dump()
 
-        # 2. Sort list fields (like feature groups) to ensure consistency
-        if "feature_prefix_groups" in config_dict:
-            config_dict["feature_prefix_groups"] = sorted(
-                config_dict["feature_prefix_groups"]
-            )
+        # 2. REMOVE Selection Logic from the Hash
+        # The Builder fetches the 'Fat DataFrame'. The Pipeline filters it.
+        # Changing filters should not force a DB reload.
+        keys_to_exclude = ["feature_prefix_groups", "feature_exclude_patterns"]
+        for k in keys_to_exclude:
+            config_dict.pop(k, None)
 
-        # 3. Hash
+        # 3. Hash the remaining Structural Configuration
+        # (start_date, end_date, target_horizon, dataset_builder class, etc.)
         config_str = json.dumps(config_dict, sort_keys=True)
         config_hash = hashlib.md5(config_str.encode("utf-8")).hexdigest()
 

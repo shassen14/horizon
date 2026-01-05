@@ -322,3 +322,13 @@ class Prediction(Base):
 #     unrealized_pnl = Column(Float)
 
 #     # Also useful: A separate table for "AccountSummary" (Cash, Buying Power, Total Equity)
+
+
+# class SystemReport(Base):
+#     __tablename__ = "system_reports"
+
+#     id = Column(Integer, primary_key=True, index=True)
+#     report_type = Column(String, index=True)  # DATA_QUALITY, MODEL_DRIFT, SYSTEM_HEALTH
+#     created_at = Column(DateTime(timezone=True), server_default=func.now())
+#     reference_id = Column(String, nullable=True)  # e.g. "model_v1" or "2024-01-05"
+#     content = Column(JSONB, nullable=False)

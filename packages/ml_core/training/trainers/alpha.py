@@ -32,6 +32,7 @@ class AlphaTrainer(BaseTrainer):
             feature_prefixes=bp.data.feature_prefix_groups,
             target=bp.data.target_column,
             processors=processors,
+            exclude_patterns=bp.data.feature_exclude_patterns,
         )
 
         # 3. Preprocess
