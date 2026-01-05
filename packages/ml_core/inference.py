@@ -1,19 +1,17 @@
+# packages/ml_core/inference.py
+
 import mlflow
 import polars as pl
-import pandas as pd
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus
-from sqlalchemy import select, func, text, update
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 
 from packages.quant_lib.config import settings
 from packages.quant_lib.logging import LogManager
 from packages.ml_core.modeling.pipeline import HorizonPipeline
 from packages.database.models import (
-    Asset,
-    MarketDataDaily,
-    FeaturesDaily,
     Model,
     Prediction,
 )

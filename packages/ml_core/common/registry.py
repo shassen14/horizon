@@ -1,3 +1,5 @@
+# packages/ml_core/common/registry.py
+
 import mlflow
 from typing import Optional
 from packages.ml_core.modeling.pipeline import HorizonPipeline
