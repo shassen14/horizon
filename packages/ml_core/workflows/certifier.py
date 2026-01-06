@@ -4,6 +4,7 @@ from packages.ml_core.training.factory import MLComponentFactory
 from packages.ml_core.training.trainer import HorizonTrainer
 from packages.ml_core.validation.stability import StabilityValidator
 from packages.ml_core.validation.ablation import AblationValidator
+from packages.ml_core.validation.monte_carlo import MonteCarloValidator
 from packages.ml_core.training.registry import ModelRegistrar
 
 
@@ -23,6 +24,14 @@ class CertificationWorkflow:
             StabilityValidator(logger, blueprint.validation),
             # Pass Factory/Config for Evaluator creation
             AblationValidator(logger, factory, blueprint.training),
+            # Monte Carlo (Slow - Parallelized)
+            MonteCarloValidator(
+                logger,
+                factory,
+                blueprint.training,
+                blueprint.validation,
+                blueprint.model,
+            ),
         ]
 
         self.registrar = ModelRegistrar(logger)

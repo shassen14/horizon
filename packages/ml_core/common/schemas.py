@@ -79,6 +79,20 @@ class ValidationConfig(BaseModel):
     # Ablation Checks
     ablation_top_n: int = 3  # How many top features to log in summary
 
+    #  Permutation (Monte Carlo)
+    monte_carlo_enabled: bool = True
+    monte_carlo_simulations: int = 50  # Start small (e.g. 50-100)
+    monte_carlo_p_value_threshold: float = 0.05  # 5% significance level
+
+    # Walk Forward
+    walk_forward_enabled: bool = True
+    walk_forward_windows: int = 5  # Number of expanding windows
+    walk_forward_min_train_size: float = 0.5  # Initial window size as % of data
+
+    # [NEW] Stage 4: WF + Permutation (The "Boss Level")
+    # Warning: This is n_windows * n_permutations operations!
+    wf_permutation_enabled: bool = False  # Default off to save time
+
 
 class BacktestConfig(BaseModel):
     enabled: bool = False
