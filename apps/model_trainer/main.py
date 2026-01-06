@@ -1,79 +1,40 @@
 # apps/model_trainer/main.py
 
-import asyncio
-import sys
 import argparse
+import asyncio
 from pathlib import Path
 import yaml
+from datetime import datetime
 
-# Import from the Shared Library
 from packages.quant_lib.config import settings
 from packages.quant_lib.logging import LogManager
 from packages.ml_core.common.schemas import ModelBlueprint
 from packages.ml_core.training.factory import MLComponentFactory
-from packages.ml_core.training.trainers.alpha import AlphaTrainer
-from packages.ml_core.training.trainers.regime import RegimeTrainer
+from packages.ml_core.common.tracker import ExperimentTracker
+from packages.ml_core.workflows.certifier import CertificationWorkflow
 
 
-async def run_training(config_path: Path):
-    # 1. Setup Logging
-    # We load the config just to get the model name for the log file
+async def main(config_path: Path):
+    # 1. Setup
     with open(config_path, "r") as f:
-        raw_config = yaml.safe_load(f)
+        blueprint = ModelBlueprint.model_validate(yaml.safe_load(f))
 
-    model_name = raw_config.get("model_name", "unknown_model")
-
-    # Debug = True because we are on Desktop
-    log_manager = LogManager(service_name=f"train-{model_name}", debug=True)
+    log_manager = LogManager(f"certify-{blueprint.model_name}", debug=True)
     logger = log_manager.get_logger("main")
-
-    logger.info(f"🚀 Starting Trainer CLI using config: {config_path.name}")
-
-    # 2. Validate Config (Strict Schema)
-    try:
-        blueprint = ModelBlueprint.model_validate(raw_config)
-    except Exception as e:
-        logger.error(f"❌ Configuration Invalid:\n{e}")
-        return
-
-    # 3. Initialize Factory
     factory = MLComponentFactory(settings, logger)
 
-    # 4. Dispatcher Pattern
-    # The blueprint tells us WHAT it is (Alpha vs Regime), we pick the handler.
-    trainer = None
-    data_kind = blueprint.data.kind
+    # 2. Initialize Workflow
+    workflow = CertificationWorkflow(blueprint, factory, logger)
 
-    if data_kind == "alpha":
-        logger.info("🔵 Mode: Alpha Strategy Training")
-        trainer = AlphaTrainer(blueprint, factory, logger)
+    # 3. Run within Tracker Context
+    run_name = f"certify_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
-    elif data_kind == "regime":
-        logger.info("🟠 Mode: Market Regime Classification")
-        trainer = RegimeTrainer(blueprint, factory, logger)
-
-    else:
-        logger.critical(f"❌ No trainer found for kind: {data_kind}")
-        return
-
-    # 5. Execute
-    try:
-        await trainer.run()
-        logger.success("✅ Training Session Complete.")
-    except Exception:
-        logger.exception("🔥 Training Crashed.")
-        sys.exit(1)
+    with ExperimentTracker(blueprint.model_name, run_name) as tracker:
+        await workflow.run(tracker)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Horizon Model Trainer")
-    parser.add_argument("config", type=Path, help="Path to model .yml blueprint")
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config", type=Path)
     args = parser.parse_args()
-
-    if not args.config.exists():
-        print(f"File not found: {args.config}")
-        sys.exit(1)
-
-    # Run Async Loop
-    asyncio.run(run_training(args.config))
+    asyncio.run(main(args.config))

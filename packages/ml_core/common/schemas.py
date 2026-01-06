@@ -71,6 +71,15 @@ class TrainingConfig(BaseModel):
     loss_function: str | None = None
 
 
+class ValidationConfig(BaseModel):
+    # Stability Checks
+    stability_noise_levels: List[float] = [0.01, 0.05, 0.10]
+    stability_threshold: float = 0.15  # Max flip rate allowed at lowest noise level
+
+    # Ablation Checks
+    ablation_top_n: int = 3  # How many top features to log in summary
+
+
 class BacktestConfig(BaseModel):
     enabled: bool = False
 
@@ -94,4 +103,5 @@ class ModelBlueprint(BaseModel):
     data: DataConfigType
     model: ModelConfig
     training: TrainingConfig
+    validation: ValidationConfig = ValidationConfig()
     backtest: BacktestConfig = BacktestConfig()
