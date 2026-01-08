@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy import text, update
 from packages.database.session import get_db_session
 from packages.database.models import Asset
-from packages.quant_lib.date_utils import (
+from packages.quant_lib.helpers.dates import (
     ensure_utc_timestamp,
 )
 from packages.quant_lib.market_clock import MarketClock

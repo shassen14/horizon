@@ -20,7 +20,7 @@ from packages.database.models import (
     MarketDataDaily,
     get_model_for_timeframe,
 )
-from packages.quant_lib.date_utils import (
+from packages.quant_lib.helpers.dates import (
     ensure_utc_timestamp,
 )
 from packages.quant_lib.interfaces import DataSource

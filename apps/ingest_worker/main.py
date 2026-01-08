@@ -4,7 +4,7 @@ import asyncio
 import argparse
 from datetime import datetime
 from aiolimiter import AsyncLimiter
-from packages.quant_lib.date_utils import ensure_utc_timestamp
+from packages.quant_lib.helpers.dates import ensure_utc_timestamp
 from packages.quant_lib.market_clock import MarketClock
 
 from packages.quant_lib.config import settings
