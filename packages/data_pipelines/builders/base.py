@@ -15,7 +15,7 @@ class AbstractDatasetBuilder(ABC):
         self.settings = settings
         self.logger = logger
         self.config = config
-        self.cache_dir = Path(__file__).resolve().parents[2] / "cache"
+        self.cache_dir = Path(__file__).resolve().parents[3] / "cache"
         self.cache_dir.mkdir(exist_ok=True, parents=True)
 
     @property

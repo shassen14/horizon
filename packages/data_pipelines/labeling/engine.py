@@ -1,6 +1,5 @@
 import argparse
 import polars as pl
-from pathlib import Path
 from urllib.parse import quote_plus
 
 from packages.data_pipelines.labeling.logic import RegimeLabeler
@@ -26,8 +25,7 @@ class LabelingEngine:
         )
 
         # Define the artifact directory relative to this file's location
-        project_root = Path(__file__).resolve().parents[3]
-        self.artifacts_dir = project_root / "artifacts" / "labeling"
+        self.artifacts_dir = settings.system.ARTIFACTS_ROOT / "labeling"
 
         # Ensure the directory exists
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)

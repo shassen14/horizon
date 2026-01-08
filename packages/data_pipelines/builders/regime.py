@@ -1,9 +1,9 @@
 # packages/data_pipelines/builders/regime.py
 
 import polars as pl
-from pathlib import Path
 from .base import AbstractDatasetBuilder
 from packages.contracts.vocabulary.columns import MarketCol
+from packages.quant_lib.config import settings
 
 
 class RegimeDatasetBuilder(AbstractDatasetBuilder):
@@ -157,16 +157,26 @@ class RegimeDatasetBuilder(AbstractDatasetBuilder):
         """Loads the correct GMM labels based on horizon."""
         horizon = self.config.target_horizon_days
         filename = f"regime_labels_{horizon}d.parquet"
-        label_path = (
-            Path(__file__).resolve().parents[2] / "labeling" / "artifacts" / filename
-        )
+        artifacts_path = settings.system.ARTIFACTS_ROOT / "labeling"
+        label_path = artifacts_path / filename
 
         if not label_path.exists():
             raise FileNotFoundError(
                 f"Labels {filename} missing. Run labeling engine first."
             )
 
+        self.logger.info(f"Loading labels from: {label_path}")
         labels = pl.read_parquet(label_path)
 
-        # Inner join to ensure we only have data where we have ground truth
-        return df.join(labels, on=MarketCol.TIME, how="inner")
+        # Rename the 'target_regime' column loaded from parquet to match the blueprint's target_column
+        # This allows flexibility if you ever change the name in the config
+        labeled_df = df.join(labels, on=MarketCol.TIME, how="inner")
+
+        # Check if the default name 'target_regime' from the parquet needs renaming
+        if (
+            "target_regime" in labeled_df.columns
+            and "target_regime" != self.config.target_column
+        ):
+            labeled_df = labeled_df.rename({"target_regime": self.config.target_column})
+
+        return labeled_df
