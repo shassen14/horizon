@@ -21,45 +21,30 @@ class OHLCPermutator(BasePermutator):
 
     def permute(self, df: pd.DataFrame, seed: int) -> pd.DataFrame:
         np.random.seed(seed)
-
-        # Ensure data is sorted by time for correct diff/shift operations
         df_sorted = df.sort_values("time").reset_index(drop=True)
         n_bars = len(df_sorted)
         if n_bars < 2:
             return df_sorted
 
-        # --- 1. DECONSTRUCTION ---
-        # A. Log Prices
+        # --- DECONSTRUCT PRICES & VOL ---
         opens = np.log(df_sorted["open"].to_numpy())
         closes = np.log(df_sorted["close"].to_numpy())
         highs = np.log(df_sorted["high"].to_numpy())
         lows = np.log(df_sorted["low"].to_numpy())
-
-        # B. Volume (handle zeros to prevent errors)
         vols = np.where(
             df_sorted["volume"].to_numpy() == 0, 1, df_sorted["volume"].to_numpy()
         )
 
-        # C. Difference Columns (e.g., Breadth)
-        diff_data = {
-            col: df_sorted[col].to_numpy()
-            for col in self.diff_cols
-            if col in df_sorted.columns
-        }
+        # --- CALCULATE PRICE/VOL RELATIVES ---
+        r_open = opens[1:] - closes[:-1]
+        r_high = highs[1:] - opens[1:]
+        r_low = lows[1:] - opens[1:]
+        r_close = closes[1:] - opens[1:]
+        r_vol = vols[1:] / vols[:-1]
 
-        # --- 2. CALCULATE RELATIVES/DELTAS ---
-        r_open = opens[1:] - closes[:-1]  # Gap
-        r_high = highs[1:] - opens[1:]  # Intraday High
-        r_low = lows[1:] - opens[1:]  # Intraday Low
-        r_close = closes[1:] - opens[1:]  # Intraday Close
-        r_vol = vols[1:] / vols[:-1]  # Volume Ratio
-        r_diffs = {col: data[1:] - data[:-1] for col, data in diff_data.items()}
-
-        # --- 3. SHUFFLE ---
+        # --- SHUFFLE PRICE/VOL ---
         perm_n = n_bars - 1
-        # Permutation for intraday structure
         perm1 = np.random.permutation(perm_n)
-        # Permutation for interday (gap) structure
         perm2 = np.random.permutation(perm_n)
 
         r_high, r_low, r_close, r_vol = (
@@ -68,18 +53,14 @@ class OHLCPermutator(BasePermutator):
             r_close[perm1],
             r_vol[perm1],
         )
-        for col in r_diffs:
-            r_diffs[col] = r_diffs[col][perm1]
         r_open = r_open[perm2]
 
-        # --- 4. RECONSTRUCTION ---
+        # --- RECONSTRUCT PRICE/VOL ---
         new_opens, new_highs, new_lows, new_closes = (
             np.zeros(n_bars) for _ in range(4)
         )
         new_vols = np.zeros(n_bars)
-        new_extras = {col: np.zeros(n_bars) for col in self.diff_cols}
 
-        # Anchor the start bar
         new_opens[0], new_highs[0], new_lows[0], new_closes[0], new_vols[0] = (
             opens[0],
             highs[0],
@@ -87,12 +68,8 @@ class OHLCPermutator(BasePermutator):
             closes[0],
             vols[0],
         )
-        for col, data in diff_data.items():
-            new_extras[col][0] = data[0]
 
-        # Iteratively reconstruct the series
         for i in range(perm_n):
-            # Price
             o = new_closes[i] + r_open[i]
             new_opens[i + 1], new_highs[i + 1], new_lows[i + 1], new_closes[i + 1] = (
                 o,
@@ -100,26 +77,28 @@ class OHLCPermutator(BasePermutator):
                 o + r_low[i],
                 o + r_close[i],
             )
-            # Volume
             new_vols[i + 1] = new_vols[i] * r_vol[i]
-            # Extras
-            for col in self.diff_cols:
-                val = new_extras[col][i] + r_diffs[col][i]
-                # Clip percentage-based features to a valid [0, 1] range
-                if "pct_" in col:
-                    val = np.clip(val, 0.0, 1.0)
-                new_extras[col][i + 1] = val
 
-        # --- 5. FINALIZE DATAFRAME ---
+        # --- HANDLE EXTRA COLUMNS (BREADTH) ---
+        # **  Shuffle the values directly, not the differences. **
         syn_df = df_sorted.copy()
+        for col in self.diff_cols:
+            if col in syn_df.columns:
+                # Get the original column data
+                original_values = syn_df[col].to_numpy()
+                # Shuffle it and assign back. The first value is kept to anchor.
+                permuted_values = np.concatenate(
+                    ([original_values[0]], np.random.permutation(original_values[1:]))
+                )
+                syn_df[col] = permuted_values
+
+        # --- FINALIZE DATAFRAME ---
         syn_df["open"], syn_df["high"], syn_df["low"], syn_df["close"] = (
             np.exp(new_opens),
             np.exp(new_highs),
             np.exp(new_lows),
             np.exp(new_closes),
         )
-        syn_df["volume"] = np.round(new_vols)  # Volume should be integer-like
-        for col, data in new_extras.items():
-            syn_df[col] = data
+        syn_df["volume"] = np.round(new_vols)
 
         return syn_df

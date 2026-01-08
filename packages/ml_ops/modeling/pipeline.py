@@ -119,10 +119,6 @@ class HorizonPipeline:
                     if any(pat.match(col) for pat in patterns):
                         excluded.add(col)
 
-            if excluded:
-                logger.warning(f"✂️  Dropped {len(excluded)} features via exclusion:")
-                logger.warning(f"    {sorted(list(excluded))}")
-
             selected_features = sorted(list(included - excluded))
 
             # Freeze the list for future inference calls
@@ -132,10 +128,10 @@ class HorizonPipeline:
             logger.info(
                 f"Feature selection complete. Freezing {len(selected_features)} features for this pipeline."
             )
-            if excluded:
-                logger.warning(
-                    f"  -> Dropped {len(excluded)} features via exclusion: {sorted(list(excluded))}"
-                )
+            # if excluded:
+            #     logger.warning(
+            #         f"  -> Dropped {len(excluded)} features via exclusion: {sorted(list(excluded))}"
+            #     )
             logger.info(f"  -> Final features: {selected_features}")
 
         if not selected_features:

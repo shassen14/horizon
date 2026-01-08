@@ -33,14 +33,14 @@ class CertificationWorkflow:
         self.validators = [
             StabilityValidator(logger, blueprint.validation),
             AblationValidator(logger, factory, blueprint.training),
-            # MonteCarloValidator(
-            #     logger,
-            #     factory,
-            #     blueprint.data,
-            #     blueprint.training,
-            #     blueprint.validation,
-            #     blueprint.model,
-            # ),
+            MonteCarloValidator(
+                logger,
+                factory,
+                blueprint.data,
+                blueprint.training,
+                blueprint.validation,
+                blueprint.model,
+            ),
             # WalkForwardValidator(
             #     logger,
             #     factory,

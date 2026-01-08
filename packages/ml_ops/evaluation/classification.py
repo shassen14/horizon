@@ -11,6 +11,8 @@ from sklearn.metrics import (
 )
 
 from packages.ml_ops.evaluation.base import EvaluationStrategy
+from sklearn.exceptions import UndefinedMetricWarning
+import warnings
 
 
 class ClassificationEvaluator(EvaluationStrategy):
@@ -52,19 +54,22 @@ class ClassificationEvaluator(EvaluationStrategy):
         if probs is not None:
             # ROC AUC
             try:
-                if n_classes <= 2:
-                    roc_auc = roc_auc_score(y_test, probs[:, 1])
-                else:
-                    roc_auc = roc_auc_score(
-                        y_test,
-                        probs,
-                        multi_class="ovr",
-                        average="weighted",
-                        labels=all_labels,
-                    )
-            except Exception:
-                # Fallback if AUC fails (e.g. only 1 class in test set)
-                roc_auc = 0.5
+                with warnings.catch_warnings():
+                    # Tell warnings to treat this specific one as an error so we can catch it
+                    warnings.filterwarnings("error", category=UndefinedMetricWarning)
+                    if n_classes <= 2:
+                        roc_auc = roc_auc_score(y_test, probs[:, 1])
+                    else:
+                        roc_auc = roc_auc_score(
+                            y_test,
+                            probs,
+                            multi_class="ovr",
+                            average="weighted",
+                            labels=all_labels,
+                        )
+            except (ValueError, UndefinedMetricWarning):  # Now we catch it
+                # This happens if y_test contains only one class
+                roc_auc = 0.5  # Default to random chance
 
             # Log Loss (Critical for Gradient Boosting evaluation)
             try:

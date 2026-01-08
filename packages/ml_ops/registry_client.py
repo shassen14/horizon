@@ -85,7 +85,7 @@ class RegistryClient:
 
         # 3. Log and Register
         model_info = mlflow.pyfunc.log_model(
-            artifact_path="model",
+            name="model",
             python_model=mlflow_model,
             registered_model_name=blueprint.model_name,
             signature=signature,

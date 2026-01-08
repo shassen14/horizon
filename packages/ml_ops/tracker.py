@@ -2,13 +2,13 @@
 
 import mlflow
 import pandas as pd
-import pkg_resources
 import polars as pl
 from typing import Dict, Any, List
 from pathlib import Path
 from mlflow.models import ModelSignature, infer_signature
 from packages.quant_lib.config import settings
 from packages.quant_lib.helpers.structs import flatten_dict
+from importlib import metadata
 
 
 class ExperimentTracker:
@@ -154,20 +154,18 @@ class ExperimentTracker:
 
         try:
             # Get versions for specified packages
-            installed = {pkg.key for pkg in pkg_resources.working_set}
+            installed = {dist.metadata["name"] for dist in metadata.distributions()}
             reqs = []
             for dep in dependencies:
-                if dep in installed:
-                    version = pkg_resources.get_distribution(dep).version
+                # Normalize names (e.g., scikit-learn -> scikit-learn)
+                normalized_dep = dep.lower().replace("_", "-")
+                if normalized_dep in installed:
+                    version = metadata.version(normalized_dep)
                     reqs.append(f"{dep}=={version}")
                 else:
                     reqs.append(dep)  # Add without version if not found
 
-            reqs_text = "\n".join(reqs)
-
-            # Use mlflow.log_text to avoid creating local files
-            mlflow.log_text(reqs_text, "requirements.txt")
-
+            mlflow.log_text("\n".join(reqs), "requirements.txt")
         except Exception as e:
             print(f"⚠️ Could not log requirements: {e}")
 

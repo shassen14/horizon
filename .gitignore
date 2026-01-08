@@ -211,18 +211,20 @@ __marimo__/
 .DS_Store
 
 # Machine Learning Artifacts
+artifacts/
+cache/
 packages/ml_core/models/*.pkl
 packages/ml_core/cache/*.parquet
 
 # Private Strategies
-packages/ml_core/configs/alpha/*.yml
-packages/ml_core/configs/regime/*.yml
+configs/alpha/*.yml
+configs/regime/*.yml
 
 # MLOps
 mlruns/*
 
 # Exception: Allow example/baseline configs
-!packages/ml_core/configs/alpha/example_*.yml
-!packages/ml_core/configs/alpha/baseline_*.yml
-!packages/ml_core/configs/regime/example_*.yml
-!packages/ml_core/configs/regime/baseline_*.yml
+!configs/alpha/example_*.yml
+!configs/alpha/baseline_*.yml
+!configs/regime/example_*.yml
+!regime/baseline_*.yml
