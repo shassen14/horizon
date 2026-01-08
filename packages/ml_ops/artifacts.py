@@ -15,11 +15,11 @@ class TrainingArtifacts:
     """
 
     pipeline: HorizonPipeline
+    raw_df: pl.DataFrame
     X_train: pd.DataFrame
     y_train: pd.DataFrame
     X_val: pd.DataFrame
     y_val: pd.DataFrame
-    raw_df: pl.DataFrame
 
     # Metadata
     metrics: Dict[str, float]
