@@ -207,6 +207,49 @@ class FeaturesDaily(Base):
     )
 
 
+class MarketContextDaily(Base):
+    """
+    Stores daily, asset-agnostic indicators describing the overall market environment.
+    This table is the single source of truth for the market's "weather".
+    """
+
+    __tablename__ = "market_context_daily"
+
+    time = Column(DateTime(timezone=True), primary_key=True)
+
+    # === 1. Volatility / Fear ===
+    # Source: VIX data
+    vix_close = Column(Float)  # Raw VIX level. High = Fear.
+    vix_pct_change_1d = Column(
+        Float
+    )  # The "shock" factor. A +20% VIX spike is a major event.
+
+    # === 2. Market Internals / Breadth ===
+    # Source: Aggregated from all stocks in features_daily
+    breadth_pct_above_sma20 = Column(
+        Float
+    )  # Tactical strength (short-term participation)
+    breadth_pct_above_sma50 = Column(Float)  # Mid-term strength (trend health)
+    breadth_pct_above_sma200 = Column(
+        Float
+    )  # Structural strength (long-term bull/bear)
+
+    # === 3. Trend & Momentum (of the market itself) ===
+    # Source: SPY features from features_daily
+    spy_rsi_14 = Column(Float)  # Is the market overbought/oversold?
+    spy_adx_14 = Column(Float)  # Is the market trending strongly (up or down)?
+
+    # === 4. Credit Risk / Financial Stress ===
+    # Source: HYG and IEF data from market_data_daily
+    # Represents the "High Yield Spread". Widening spread = high stress.
+    credit_spread_pct_change_5d = Column(Float)
+
+    # === 5. Interest Rate / Macro Environment ===
+    # Source: TLT data from market_data_daily
+    # Represents the direction of long-term bond yields. Rising yields = headwind for stocks.
+    tlt_pct_change_21d = Column(Float)
+
+
 class Model(Base):
     """
     Stores metadata about a trained model family.
