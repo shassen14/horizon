@@ -33,8 +33,8 @@ class AlphaDataConfig(BaseDataConfig):
     kind: Literal["alpha"] = "alpha"
     target_horizon_days: int = 63
     generate_lags: bool = True
-    filter_regime: int | None = None
     regime_model_name: str | None = None
+    filter_regime: Union[int, List[int], None] = None
     target_column: str = AlphaCol.TARGET_RETURN
 
 
@@ -93,7 +93,7 @@ class ValidationConfig(BaseModel):
     walk_forward_windows: int = 5  # Number of expanding windows
     walk_forward_min_train_size: float = 0.5  # Initial window size as % of data
 
-    # [NEW] Stage 4: WF + Permutation (The "Boss Level")
+    # Stage 4: WF + Permutation (The "Boss Level")
     # Warning: This is n_windows * n_permutations operations!
     wf_permutation_enabled: bool = False  # Default off to save time
 

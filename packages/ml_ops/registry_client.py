@@ -2,6 +2,7 @@ import mlflow
 import pandas as pd
 import polars as pl
 from typing import Optional
+from packages.contracts.vocabulary.columns import MarketCol
 from packages.ml_ops.modeling.pipeline import HorizonPipeline, HorizonMLflowWrapper
 from packages.contracts.blueprints import ModelBlueprint
 from packages.ml_ops.artifacts import TrainingArtifacts
@@ -64,14 +65,23 @@ class RegistryClient:
         Wraps, signs, and registers a certified pipeline to the MLflow Model Registry.
         """
         pipeline = artifacts.pipeline
-        X_val = artifacts.X_val
+        input_example = artifacts.input_example
 
         if self.logger:
             self.logger.info(f"Registering model '{blueprint.model_name}' to MLflow...")
 
-        # 1. Infer Signature
-        input_example = X_val.head(5)
-        # Handle int types for safety
+        time_col = MarketCol.TIME
+        if time_col in input_example.columns and pd.api.types.is_datetime64_any_dtype(
+            input_example[time_col]
+        ):
+            if input_example[time_col].dt.tz is not None:
+                self.logger.info(
+                    "Converting timezone-aware datetime to naive UTC for MLflow signature."
+                )
+                input_example = input_example.copy()  # Avoid SettingWithCopyWarning
+                input_example[time_col] = input_example[time_col].dt.tz_localize(None)
+
+        # 1. Handle int types for safety
         int_cols = input_example.select_dtypes(include=["int"]).columns
         if len(int_cols) > 0:
             input_example = input_example.copy()

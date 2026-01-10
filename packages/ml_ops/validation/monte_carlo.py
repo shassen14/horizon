@@ -1,16 +1,18 @@
+import gc
 import logging
+import warnings
 import numpy as np
 import pandas as pd
 import polars as pl
 from pathlib import Path
 from joblib import Parallel, delayed
 
-from packages.data_pipelines.labeling.logic import RegimeLabeler
 from packages.ml_ops.validation.permutators.diagnostics import PermutationVerifier
+from packages.ml_ops.protocols import ModelLifecycle, ValidationLogic
+
 
 # --- Local Imports ---
 from .base import BaseValidator, ValidationResult
-from .permutators.ohlc import OHLCPermutator
 
 # --- Library Imports ---
 from packages.ml_ops.training.factory import MLComponentFactory
@@ -24,7 +26,6 @@ from packages.contracts.blueprints import (
     ModelConfig,
     DataConfigType,
 )
-from packages.contracts.vocabulary.columns import MarketCol
 
 # --------------------------------------------------------------------------------------
 # WORKER FUNCTION (Defined globally to be pickle-safe for multiprocessing)
@@ -38,6 +39,7 @@ def _execute_permutation(
     train_conf: TrainingConfig,
     model_conf: ModelConfig,
     feature_list: list,
+    val_logic: ValidationLogic,
 ):
     """
     An independent, parallel worker that runs one full permutation test:
@@ -56,89 +58,84 @@ def _execute_permutation(
         raw_df_pandas = raw_df_pandas.drop(columns=[data_conf.target_column])
 
     # --- 1. PERMUTE ---
-    if MarketCol.SYMBOL not in raw_df_pandas.columns:
-        raw_df_pandas = raw_df_pandas.copy()
-        raw_df_pandas[MarketCol.SYMBOL] = "MarketContext"
+    try:
+        permuted_df = val_logic.permute_data(raw_df_pandas, seed)
+        if permuted_df.empty:
+            return None
 
-    ohlc_cols = {
-        MarketCol.OPEN,
-        MarketCol.HIGH,
-        MarketCol.LOW,
-        MarketCol.CLOSE,
-        MarketCol.VOLUME,
-        MarketCol.SYMBOL,
-        MarketCol.TIME,
-    }
-    extra_cols = [c for c in raw_df_pandas.columns if c not in ohlc_cols]
+        # --- 2. RE-FEATURE ---
+        factory = MLComponentFactory(settings, worker_logger)
+        p_df = pl.from_pandas(permuted_df)
+        feat_factory = FeatureFactory(settings)
+        with_features = feat_factory.generate_all(p_df)
 
-    permutator = OHLCPermutator(diff_cols=extra_cols)
-    permuted_df = permutator.permute(raw_df_pandas, seed=seed)
-
-    # --- 2. RE-FEATURE ---
-    p_df = pl.from_pandas(permuted_df)
-    feat_factory = FeatureFactory(settings)
-    with_features = feat_factory.generate_all(p_df)
-
-    # --- 3. RE-LABEL (THE CRITICAL FIX) ---
-    if data_conf.kind == "regime":
-        price_col = "SPY" if "SPY" in with_features.columns else MarketCol.CLOSE
-
-        # Instantiate the pure labeling logic class
-        labeler = RegimeLabeler(
-            config=data_conf.labeling, horizon=data_conf.target_horizon_days
-        )
+        # --- 3. RE-LABEL (THE CRITICAL FIX) ---
         try:
-            # Generate new labels based on the permuted price path
-            lab_df = labeler.fit_predict(with_features, price_col=price_col)
-            # Inner join to align features with the newly created labels
-            dataset = with_features.join(lab_df, on=MarketCol.TIME, how="inner")
+            dataset = val_logic.relabel_data(with_features, data_conf)
         except ValueError:
-            return None  # Permutation created a sequence too short for labeling
-    else:  # For Alpha models
-        dataset = with_features.with_columns(
-            (
-                (
-                    pl.col(MarketCol.CLOSE).shift(-data_conf.target_horizon_days)
-                    / pl.col(MarketCol.CLOSE)
-                )
-                - 1
-            )
-            .over(MarketCol.ASSET_ID)
-            .alias(data_conf.target_column)
+            return None
+
+        # --- 4. PIPELINE & TRAIN ---
+        from packages.ml_ops.modeling.pipeline import HorizonPipeline
+        from packages.data_pipelines.processors.temporal import TemporalFeatureProcessor
+
+        processors = []
+        # Explicitly check the config dictionary or object
+        gen_lags = (
+            data_conf.generate_lags if hasattr(data_conf, "generate_lags") else False
         )
 
-    # --- 4. PIPELINE & TRAIN ---
-    from packages.ml_ops.modeling.pipeline import HorizonPipeline
+        if gen_lags:
+            processors.append(TemporalFeatureProcessor())
 
-    pipeline = HorizonPipeline(
-        model=factory.create_model(model_conf),
-        # Pass empty lists here; we will set trained_features directly
-        feature_prefixes=[],
-        target=data_conf.target_column,
-        processors=[],
-        exclude_patterns=[],
-    )
+        pipeline = HorizonPipeline(
+            model=factory.create_model(model_conf),
+            # Pass empty lists here; we will set trained_features directly
+            feature_prefixes=[],
+            target=data_conf.target_column,
+            processors=processors,
+            exclude_patterns=[],
+        )
 
-    pipeline.trained_features = feature_list
+        pipeline.trained_features = feature_list
 
-    processed = pipeline.preprocess(dataset)
-    X, y = pipeline.get_X_y(processed)
+        processed = pipeline.preprocess(dataset)
+        X, y = pipeline.get_X_y(processed)
 
-    if X is None or y is None or len(X) < 100:
+        if X is None or y is None or len(X) < 100:
+            return None
+
+        # Simple 80/20 split for this permutation run
+        split_idx = int(len(X) * 0.8)
+        X_t, X_v = X.iloc[:split_idx], X.iloc[split_idx:]
+        y_t, y_v = y.iloc[:split_idx], y.iloc[split_idx:]
+
+        strategy = factory.create_strategy(train_conf)
+        strategy.train(pipeline.model, X_t, y_t, X_v, y_v)
+
+        evaluator = factory.create_evaluator(train_conf)
+        metrics = evaluator.evaluate(pipeline.model, X_v, y_v, logger=None)
+
+        result = metrics.get(train_conf.eval_metric)
+
+        # CLEANUP
+        del (
+            permuted_df,
+            p_df,
+            with_features,
+            dataset,
+            processed,
+            X,
+            y,
+            strategy,
+            evaluator,
+        )
+        gc.collect()  # Force release memory
+
+        return result
+    except Exception as e:
+        # Log error locally if needed
         return None
-
-    # Simple 80/20 split for this permutation run
-    split_idx = int(len(X) * 0.8)
-    X_t, X_v = X.iloc[:split_idx], X.iloc[split_idx:]
-    y_t, y_v = y.iloc[:split_idx], y.iloc[split_idx:]
-
-    strategy = factory.create_strategy(train_conf)
-    strategy.train(pipeline.model, X_t, y_t, X_v, y_v)
-
-    evaluator = factory.create_evaluator(train_conf)
-    metrics = evaluator.evaluate(pipeline.model, X_v, y_v, logger=None)
-
-    return metrics.get(train_conf.eval_metric)
 
 
 # --------------------------------------------------------------------------------------
@@ -155,6 +152,7 @@ class MonteCarloValidator(BaseValidator):
         training_config: TrainingConfig,
         validation_config: ValidationConfig,
         model_config: ModelConfig,
+        lifecycle: ModelLifecycle,
     ):
         super().__init__(logger)
         self.factory = factory
@@ -162,6 +160,7 @@ class MonteCarloValidator(BaseValidator):
         self.train_conf = training_config
         self.val_conf = validation_config
         self.model_config = model_config
+        self.lifecycle = lifecycle
 
     def validate(self, artifacts, tracker) -> ValidationResult:
         if not self.val_conf.monte_carlo_enabled:
@@ -176,25 +175,11 @@ class MonteCarloValidator(BaseValidator):
 
         # Self Verification
         if n_sims > 0:
-            # Prepare data for verification
-            clean_df = raw_df_pandas.drop(
-                columns=[self.data_conf.target_column], errors="ignore"
-            )
-            if "symbol" not in clean_df.columns:
-                clean_df["symbol"] = "MarketContext"
-
-            # Run the first permutation for verification
-            ohlc_cols = {"open", "high", "low", "close", "volume", "symbol", "time"}
-            extra_cols = [c for c in clean_df.columns if c not in ohlc_cols]
-
-            permutator = OHLCPermutator(diff_cols=extra_cols)
-            permuted_df_for_verify = permutator.permute(clean_df, seed=0)
-
             # Run the verifier
+            # We pass ONLY the raw dataframe. The verifier will handle splitting/permuting for the check.
             verifier = PermutationVerifier(self.logger)
-            is_valid = verifier.verify(clean_df, permuted_df_for_verify, extra_cols)
+            is_valid = verifier.verify(raw_df_pandas, permuted_df=None, extra_cols=None)
 
-            # Optionally, halt the test if verification fails
             if not is_valid:
                 self.logger.error(
                     "Halting Monte Carlo test due to failed permutation verification."
@@ -205,20 +190,40 @@ class MonteCarloValidator(BaseValidator):
                     {"p_value": 1.0, "error": "Permutation failed verification"},
                 )
 
-        final_feature_names = artifacts.feature_names
         self.logger.info(f"Using frozen feature list for all {n_sims} simulations.")
 
-        random_scores = Parallel(n_jobs=-1)(
-            delayed(_execute_permutation)(
-                i,
-                raw_df_pandas,
-                self.data_conf,
-                self.train_conf,
-                self.model_config,
-                final_feature_names,
+        # Extract the pickle-safe logic object
+        val_logic = self.lifecycle.get_validation_logic()
+
+        # OPTIMIZATION 1: Limit Parallelism
+        # If your machine has 32GB RAM and dataset is 2GB,
+        # running 16 workers = 32GB. Boom.
+        # Set a safe limit, e.g., 4 workers max for Alpha models.
+        max_jobs = 4 if self.data_conf.kind == "alpha" else -1
+
+        # Force GC before starting heavy parallel work
+        gc.collect()
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", module="sklearn.utils.parallel")
+
+            random_scores = Parallel(
+                n_jobs=max_jobs,  # <--- CONTROLLED CONCURRENCY
+                backend="loky",  # Robust process isolation
+                max_nbytes=None,  # Disable memory mapping limits
+                mmap_mode="r",  # Try to share read-only memory if possible (requires numpy conversion usually)
+            )(
+                delayed(_execute_permutation)(
+                    i,
+                    raw_df_pandas,
+                    self.data_conf,
+                    self.train_conf,
+                    self.model_config,
+                    artifacts.feature_names,
+                    val_logic,
+                )
+                for i in range(n_sims)
             )
-            for i in range(n_sims)
-        )
 
         valid_scores = [s for s in random_scores if s is not None and np.isfinite(s)]
         if not valid_scores:

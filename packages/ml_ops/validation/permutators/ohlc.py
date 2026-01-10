@@ -59,16 +59,13 @@ class OHLCPermutator(BasePermutator):
         new_opens, new_highs, new_lows, new_closes = (
             np.zeros(n_bars) for _ in range(4)
         )
-        new_vols = np.zeros(n_bars)
 
-        new_opens[0], new_highs[0], new_lows[0], new_closes[0], new_vols[0] = (
+        new_opens[0], new_highs[0], new_lows[0], new_closes[0] = (
             opens[0],
             highs[0],
             lows[0],
             closes[0],
-            vols[0],
         )
-
         for i in range(perm_n):
             o = new_closes[i] + r_open[i]
             new_opens[i + 1], new_highs[i + 1], new_lows[i + 1], new_closes[i + 1] = (
@@ -77,16 +74,15 @@ class OHLCPermutator(BasePermutator):
                 o + r_low[i],
                 o + r_close[i],
             )
-            new_vols[i + 1] = new_vols[i] * r_vol[i]
 
         # --- HANDLE EXTRA COLUMNS (BREADTH) ---
         # **  Shuffle the values directly, not the differences. **
         syn_df = df_sorted.copy()
-        for col in self.diff_cols:
+        cols_to_shuffle = self.diff_cols + ["volume"]
+
+        for col in cols_to_shuffle:
             if col in syn_df.columns:
-                # Get the original column data
                 original_values = syn_df[col].to_numpy()
-                # Shuffle it and assign back. The first value is kept to anchor.
                 permuted_values = np.concatenate(
                     ([original_values[0]], np.random.permutation(original_values[1:]))
                 )
@@ -99,6 +95,5 @@ class OHLCPermutator(BasePermutator):
             np.exp(new_lows),
             np.exp(new_closes),
         )
-        syn_df["volume"] = np.round(new_vols)
 
         return syn_df

@@ -1,42 +1,83 @@
 import polars as pl
 import pandas as pd
+from packages.contracts.vocabulary.columns import MarketCol
+from packages.ml_ops.validation.permutators.ohlc import OHLCPermutator
 
 
 class PermutationVerifier:
-    """
-    A diagnostic tool to verify the statistical integrity of a permuted DataFrame.
-    It compares the moments of the log-returns and key extra columns.
-    """
-
     def __init__(self, logger, tolerance: float = 0.05):
         self.logger = logger
-        # Tolerance for stats that should be very close
-        self.close_tolerance = 0.05  # 5% for Std Dev
-        # Tolerance for stats that are known to diverge with this method
-        self.loose_tolerance = 0.50  # 50% for Skew/Kurtosis
-        # Tolerance for stats that should be identical
-        self.exact_tolerance = 0.001  # 0.1% for Mean
+        self.close_tolerance = 0.05
+        self.loose_tolerance = 0.50
+        self.exact_tolerance = 0.001
 
     def verify(
-        self, original_df: pd.DataFrame, permuted_df: pd.DataFrame, extra_cols: list
+        self,
+        original_df: pd.DataFrame,
+        permuted_df: pd.DataFrame = None,
+        extra_cols: list = None,
     ) -> bool:
         """
-        Runs all checks and returns True if all stats are within tolerance.
+        Runs statistical checks.
+        Auto-detects if Multi-Asset and isolates a single asset for verification.
         """
-        self.logger.info("--- Running Permutation Self-Verification (on first run) ---")
+        self.logger.info("--- Running Permutation Self-Verification ---")
 
-        # 1. Start/End Price Check
+        # --- DEFINE CONSTANTS AT TOP SCOPE ---
+        ohlc_cols = {
+            MarketCol.OPEN,
+            MarketCol.HIGH,
+            MarketCol.LOW,
+            MarketCol.CLOSE,
+            MarketCol.VOLUME,
+            MarketCol.SYMBOL,
+            MarketCol.TIME,
+            "asset_id",
+        }
+
+        # 1. Handle Multi-Asset Datasets
+        if MarketCol.SYMBOL in original_df.columns:
+            unique_symbols = original_df[MarketCol.SYMBOL].unique()
+            if len(unique_symbols) > 1:
+                counts = original_df[MarketCol.SYMBOL].value_counts()
+                target_sym = counts.idxmax()
+                self.logger.info(
+                    f"Multi-Asset dataset detected. Verifying representative asset: {target_sym}"
+                )
+
+                df_to_test = original_df[
+                    original_df[MarketCol.SYMBOL] == target_sym
+                ].copy()
+
+                target_extra = [c for c in df_to_test.columns if c not in ohlc_cols]
+
+                permutator = OHLCPermutator(diff_cols=target_extra)
+                df_permuted = permutator.permute(df_to_test, seed=0)
+
+                # Recursive call with single asset
+                return self.verify(df_to_test, df_permuted, target_extra)
+
+        # 2. Handle Single-Asset (Missing permuted_df)
+        if permuted_df is None:
+            # We need to generate it here!
+            if extra_cols is None:
+                extra_cols = [c for c in original_df.columns if c not in ohlc_cols]
+
+            permutator = OHLCPermutator(diff_cols=extra_cols)
+            permuted_df = permutator.permute(original_df, seed=0)
+
+        # 3. Standard Verification
         start_ok = self._check_endpoints(
-            original_df, permuted_df, "close", "Start Price"
+            original_df, permuted_df, MarketCol.CLOSE, "Start Price"
         )
-        end_ok = self._check_endpoints(original_df, permuted_df, "close", "End Price")
+        end_ok = self._check_endpoints(
+            original_df, permuted_df, MarketCol.CLOSE, "End Price"
+        )
 
-        # 2. Log Return Statistics Check
         returns_ok, returns_report = self._check_log_return_stats(
             original_df, permuted_df
         )
 
-        # 3. Extra Columns (Breadth) Check
         extras_ok = True
         extras_report = ""
         if extra_cols:
@@ -44,28 +85,26 @@ class PermutationVerifier:
                 original_df, permuted_df, extra_cols
             )
 
-        # Log the full report
         self.logger.info(returns_report)
         if extras_report:
             self.logger.info(extras_report)
 
+        # Only fail on critical stats (Mean/Std/Endpoints)
         passed = all([start_ok, end_ok, returns_ok, extras_ok])
+
         if not passed:
-            self.logger.error(
-                "❌ Permutation verification FAILED. Statistical properties were not preserved."
-            )
+            self.logger.error("❌ Permutation verification FAILED on critical stats.")
         else:
-            self.logger.success("✅ Permutation verification PASSED.")
+            self.logger.success("✅ Permutation verification PASSED on critical stats.")
+            self.logger.warning("   -> Note: Skew/Kurtosis divergence is expected.")
 
         return passed
 
     def _check_endpoints(self, df1, df2, col, name):
         val1, val2 = df1[col].iloc[0], df2[col].iloc[0]
-        is_ok = (
-            abs((val1 - val2) / val1) < self.exact_tolerance
-            if val1 != 0
-            else val1 == val2
-        )
+        if val1 == 0:
+            return val1 == val2
+        is_ok = abs((val1 - val2) / val1) < self.exact_tolerance
         if not is_ok:
             self.logger.warning(
                 f"  -> {name} Mismatch: Real={val1:.2f}, Perm={val2:.2f}"
@@ -73,8 +112,8 @@ class PermutationVerifier:
         return is_ok
 
     def _check_log_return_stats(self, df1, df2):
-        s1 = pl.from_pandas(df1).get_column("close").log().diff()
-        s2 = pl.from_pandas(df2).get_column("close").log().diff()
+        s1 = pl.from_pandas(df1).get_column(MarketCol.CLOSE).log().diff()
+        s2 = pl.from_pandas(df2).get_column(MarketCol.CLOSE).log().diff()
 
         stats = {
             "Mean": (s1.mean(), s2.mean(), self.exact_tolerance),
@@ -87,8 +126,6 @@ class PermutationVerifier:
             "\n--- Log Return Statistics ---",
             f"{'Metric':<10} | {'REAL':>15} | {'PERMUTED':>15} | {'STATUS':>10}",
         ]
-
-        # This will track the pass/fail for Mean and Std Dev only
         critical_stats_ok = True
 
         for metric, (v1, v2, tolerance) in stats.items():
@@ -99,12 +136,11 @@ class PermutationVerifier:
                     abs(v1 - v2) < 1e-9 if v1 is not None and v2 is not None else False
                 )
 
-            # Only Mean and Std Dev determine the final pass/fail status
+            # Loose check: Only Mean/Std affect the boolean return
             if metric in ["Mean", "Std Dev"] and not is_ok:
                 critical_stats_ok = False
 
             status = "✅" if is_ok else "❌"
-            # For Skew/Kurtosis, if it fails, we'll call it a "divergence"
             if metric in ["Skew", "Kurtosis"] and not is_ok:
                 status = "⚠️ (Diverged)"
 
@@ -118,16 +154,19 @@ class PermutationVerifier:
         all_ok = True
         reports = ["\n--- Extra Column Statistics ---"]
         for col in extra_cols:
+            if col not in df1.columns or col not in df2.columns:
+                continue
+
             s1, s2 = df1[col], df2[col]
             stats = {"Mean": (s1.mean(), s2.mean()), "Std Dev": (s1.std(), s2.std())}
 
             reports.append(f"  Column: '{col}'")
             for metric, (v1, v2) in stats.items():
-                is_ok = (
-                    abs((v1 - v2) / v1) < self.exact_tolerance
-                    if v1 != 0
-                    else abs(v1 - v2) < 1e-9
-                )
+                if v1 == 0:
+                    is_ok = abs(v2) < 1e-9
+                else:
+                    is_ok = abs((v1 - v2) / v1) < self.exact_tolerance
+
                 if not is_ok:
                     all_ok = False
                 reports.append(

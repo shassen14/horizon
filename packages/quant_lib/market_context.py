@@ -69,6 +69,32 @@ class MarketContextCalculator:
 
         return base.sort("time").fill_null(strategy="forward")
 
+    def calculate_asset_only_context(
+        self, asset_data: Dict[str, pl.DataFrame]
+    ) -> pl.DataFrame:
+        """
+        Calculates only the features derived from single assets (VIX, SPY, Rates, Credit).
+        Does NOT include Breadth.
+        """
+        vix = self.calculate_vix_features(asset_data.get("VIX"))
+        trend = self.calculate_trend_features(asset_data.get("SPY"))
+        credit = self.calculate_credit_features(
+            asset_data.get("HYG"), asset_data.get("IEF")
+        )
+        rates = self.calculate_rates_features(asset_data.get("TLT"))
+
+        # Join them all
+        base = vix if vix is not None else trend
+        for fs in [trend, credit, rates]:
+            if fs is not None and base is not None:
+                base = base.join(fs, on="time", how="left")
+            elif base is None:
+                base = fs
+
+        if base is not None:
+            return base.sort("time").forward_fill()
+        return pl.DataFrame()
+
     def calculate_vix_features(self, vix_df: pl.DataFrame) -> pl.DataFrame | None:
         if vix_df is None or vix_df.is_empty():
             return None

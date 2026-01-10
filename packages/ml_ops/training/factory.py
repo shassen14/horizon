@@ -1,6 +1,9 @@
 import importlib
 from typing import Any
 from packages.contracts.blueprints import DataConfigType
+from packages.ml_ops.lifecycles.alpha import AlphaLifecycle
+from packages.ml_ops.lifecycles.regime import RegimeLifecycle
+from packages.ml_ops.protocols import ModelLifecycle
 from packages.quant_lib.config import Settings
 from packages.data_pipelines.builders.base import AbstractDatasetBuilder
 from packages.ml_ops.evaluation.base import EvaluationStrategy
@@ -12,6 +15,7 @@ from .strategies import (
 
 from packages.data_pipelines.builders.alpha import AlphaDatasetBuilder
 from packages.data_pipelines.builders.regime import RegimeDatasetBuilder
+from packages.ml_ops.evaluation.alpha import AlphaEvaluator
 from packages.ml_ops.evaluation.classification import ClassificationEvaluator
 from packages.ml_ops.evaluation.regression import RegressionEvaluator
 
@@ -38,6 +42,7 @@ class MLComponentFactory:
         self._evaluator_registry = {
             "ClassificationEvaluator": ClassificationEvaluator,
             "RegressionEvaluator": RegressionEvaluator,
+            "AlphaEvaluator": AlphaEvaluator,
         }
 
     def create_dataset_builder(
@@ -99,3 +104,14 @@ class MLComponentFactory:
         if not eval_class:
             raise ValueError(f"Unknown Evaluator: '{eval_name}'")
         return eval_class()
+
+    def create_lifecycle(self, data_config) -> ModelLifecycle:
+        """
+        Returns the correct Lifecycle Manager based on the data kind.
+        """
+        if data_config.kind == "alpha":
+            return AlphaLifecycle()
+        elif data_config.kind == "regime":
+            return RegimeLifecycle()
+        else:
+            raise ValueError(f"No Lifecycle defined for kind: {data_config.kind}")

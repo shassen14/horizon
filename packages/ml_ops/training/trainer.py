@@ -31,6 +31,8 @@ class HorizonTrainer:
                 "Dataset is empty. Check database connection or builder logic."
             )
 
+        input_example = raw_df.head(5).to_pandas()
+
         tracker.log_dataset(raw_df, "training_data", cache_key)
 
         # 2. Setup Pipeline
@@ -74,8 +76,19 @@ class HorizonTrainer:
 
         # 5. Evaluate Baseline Performance
         evaluator = self.factory.create_evaluator(self.blueprint.training)
-        metrics = evaluator.evaluate(pipeline.model, X_val, y_val, self.logger)
-        tracker.log_metrics(metrics)
+
+        # A. Validation Metrics (The Standard)
+        val_metrics = evaluator.evaluate(pipeline.model, X_val, y_val, self.logger)
+        tracker.log_metrics(val_metrics)
+
+        # B. Training Metrics (For Overfitting Check)
+        # Pass logger=None to keep console clean, we only need the numbers
+        train_metrics = evaluator.evaluate(
+            pipeline.model, X_train, y_train, logger=None
+        )
+
+        # Prefix keys for logging clarity
+        tracker.log_metrics({f"train_{k}": v for k, v in train_metrics.items()})
 
         # 6. Package and Return Artifacts
         return TrainingArtifacts(
@@ -85,7 +98,9 @@ class HorizonTrainer:
             y_train=y_train,
             X_val=X_val,
             y_val=y_val,
-            metrics=metrics,
+            input_example=input_example,
+            metrics=val_metrics,
+            train_metrics=train_metrics,
             feature_names=final_feature_names,
             cache_key=cache_key,
         )

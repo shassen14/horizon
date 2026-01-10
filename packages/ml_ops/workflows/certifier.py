@@ -6,6 +6,7 @@ from packages.ml_ops.tracker import ExperimentTracker
 from packages.ml_ops.training.factory import MLComponentFactory
 from packages.ml_ops.training.trainer import HorizonTrainer
 from packages.ml_ops.registry_client import RegistryClient
+from packages.ml_ops.validation.generalization import GeneralizationValidator
 from packages.ml_ops.validation.stability import StabilityValidator
 from packages.ml_ops.validation.ablation import AblationValidator
 from packages.ml_ops.validation.monte_carlo import MonteCarloValidator
@@ -26,13 +27,15 @@ class CertificationWorkflow:
         self.factory = factory
         self.logger = logger
 
-        # 1. Instantiate the Trainer
+        # 1. Instantiate the Trainer and lifecycle
         self.trainer = HorizonTrainer(blueprint, factory, logger)
+        self.lifecycle = factory.create_lifecycle(blueprint.data)
 
         # 2. Instantiate the Validation Suite (The "Checklist")
         self.validators = [
             StabilityValidator(logger, blueprint.validation),
             AblationValidator(logger, factory, blueprint.training),
+            GeneralizationValidator(logger, blueprint.validation),
             MonteCarloValidator(
                 logger,
                 factory,
@@ -40,6 +43,7 @@ class CertificationWorkflow:
                 blueprint.training,
                 blueprint.validation,
                 blueprint.model,
+                self.lifecycle,
             ),
             # WalkForwardValidator(
             #     logger,

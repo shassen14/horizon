@@ -22,6 +22,8 @@ class TrainingArtifacts:
     y_val: pd.DataFrame
 
     # Metadata
+    input_example: pd.DataFrame
     metrics: Dict[str, float]
+    train_metrics: Dict[str, float]
     feature_names: List[str]
     cache_key: str  # For tagging the dataset used

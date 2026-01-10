@@ -10,14 +10,15 @@ from packages.ml_ops.modeling.pipeline import HorizonPipeline
 
 # --- Contract Imports ---
 from packages.contracts.vocabulary.columns import MarketCol, RegimeCol
+from packages.contracts.blueprints import RegimeDataConfig
+
+# --- Builder Import ---
+from packages.data_pipelines.builders.regime import RegimeDatasetBuilder
+from packages.quant_lib.config import settings
+from packages.quant_lib.logging import LogManager
 
 
 class RegimeModelLabeler(AbstractLabeler):
-    """
-    A concrete implementation of AbstractLabeler that uses a trained Regime Model
-    from the MLflow Registry to label a DataFrame.
-    """
-
     def __init__(
         self,
         registry_client: RegistryClient,
@@ -28,99 +29,64 @@ class RegimeModelLabeler(AbstractLabeler):
         self.registry_client = registry_client
         self.model_name = model_name
         self.alias = alias
-        self.logger = logger
-
-        # Load the pipeline during initialization
+        self.logger = logger or LogManager("regime-labeler").get_logger("main")
         self.pipeline: Optional[HorizonPipeline] = self._load_model()
 
     def _load_model(self) -> Optional[HorizonPipeline]:
-        """Loads the specified regime model pipeline from the registry."""
-        if self.logger:
-            self.logger.info(
-                f"Loading dependency: Regime Model '{self.model_name}@{self.alias}'..."
-            )
-
         pipeline = self.registry_client.load_pipeline(self.model_name, self.alias)
-
         if not pipeline and self.logger:
-            self.logger.warning(
-                f"Regime model '{self.model_name}@{self.alias}' not found in registry."
-            )
-
+            self.logger.warning(f"Regime model '{self.model_name}' not found.")
         return pipeline
 
     def label(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Applies regime labels to the input DataFrame.
-        If the model fails to load, it applies a default 'safe' label.
-        """
         if not self.pipeline:
-            # Fallback: If the regime model is missing, assume a default "safe" regime (e.g., Bull=1)
-            if self.logger:
-                self.logger.warning(
-                    "Applying default regime label (1) due to missing model."
-                )
             return df.with_columns(pl.lit(1, dtype=pl.Int32).alias(RegimeCol.TARGET))
 
         try:
-            # 1. Reconstruct the exact feature vector the regime model expects.
-            # This logic must be kept in sync with how the regime model was trained.
-            # For now, we assume it's based on market-wide aggregates.
-            self.logger.info("Reconstructing features for regime model prediction...")
+            # 1. Reuse the RegimeDatasetBuilder Logic
+            # We construct a configuration that matches the Alpha data range
+            min_date = df[MarketCol.TIME].min().strftime("%Y-%m-%d")
 
-            # We need to ensure the necessary base features are present
-            required_cols = [
-                "sma_50",
-                "atr_14_pct",
-                "rsi_14",
-                "zscore_20",
-                MarketCol.CLOSE,
-            ]
-            if not all(col in df.columns for col in required_cols):
-                missing = [col for col in required_cols if col not in df.columns]
-                raise ValueError(
-                    f"Input DataFrame is missing required columns for regime labeling: {missing}"
-                )
-
-            market_stats = (
-                df.group_by(MarketCol.TIME)
-                .agg(
-                    [
-                        ((pl.col(MarketCol.CLOSE) > pl.col("sma_50")).mean()).alias(
-                            "pct_above_sma50"
-                        ),
-                        pl.col("atr_14_pct").mean().alias("avg_market_vol"),
-                    ]
-                )
-                .sort(MarketCol.TIME)
+            # Create a temporary config for the builder
+            # We hardcode '21' here assuming the model is tactical, but ideally
+            # we should read this from the pipeline metadata if stored.
+            # For now, 21d is a safe default for fetching the base data.
+            regime_config = RegimeDataConfig(
+                dataset_builder="RegimeDatasetBuilder",
+                start_date=min_date,
+                target_horizon_days=21,
             )
 
-            # Isolate SPY features
-            spy_df = (
-                df.filter(pl.col(MarketCol.SYMBOL) == "SPY")
-                .select([MarketCol.TIME, "rsi_14", "zscore_20"])
-                .rename({"rsi_14": "spy_rsi_14", "zscore_20": "spy_zscore_20"})
-            )
+            self.logger.info("Fetching market context using RegimeDatasetBuilder...")
 
-            regime_input = market_stats.join(
-                spy_df, on=MarketCol.TIME, how="left"
-            ).drop_nulls()
+            # Instantiate Builder
+            # We pass a logger to silence it if we want, or reuse self.logger
+            builder = RegimeDatasetBuilder(settings, self.logger, regime_config)
 
-            # 2. Predict
-            if self.logger:
-                self.logger.info(f"Predicting regimes for {len(regime_input)} days...")
-            regime_preds = self.pipeline.predict(regime_input)
+            # Load Data (This uses the smart, correct SQL logic we already wrote)
+            # Note: We use _load_data_internal to skip the file cache check,
+            # because the date range might be a subset of a cached file.
+            context_df = builder.get_data()  # Hits Parquet Cache!
 
-            # 3. Map predictions back to a time-indexed series
-            regime_labels = regime_input.select(MarketCol.TIME).with_columns(
+            # 2. Align Features
+            # The builder returns exactly what we need (SPY + Breadth + Technicals)
+            # We just need to ensure column names match what the pipeline expects.
+
+            # Drop the label column if it exists (we are predicting it afresh)
+            if RegimeCol.TARGET in context_df.columns:
+                context_df = context_df.drop(RegimeCol.TARGET)
+
+            # 3. Predict
+            regime_preds = self.pipeline.predict(context_df)
+
+            # 4. Map back
+            regime_labels = context_df.select(MarketCol.TIME).with_columns(
                 pl.Series(name=RegimeCol.TARGET, values=regime_preds, dtype=pl.Int32)
             )
 
-            # 4. Broadcast the daily regime label to all stocks on that day
+            # 5. Broadcast to Alpha Dataset
             return df.join(regime_labels, on=MarketCol.TIME, how="left")
 
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Failed to apply regime labels: {e}", exc_info=True)
-            # Fallback on error
+            self.logger.error(f"Regime labeling failed: {e}", exc_info=True)
             return df.with_columns(pl.lit(1, dtype=pl.Int32).alias(RegimeCol.TARGET))
