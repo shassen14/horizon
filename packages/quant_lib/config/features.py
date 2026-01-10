@@ -30,3 +30,9 @@ class FeatureConfig(EnvConfig):
 
     # Structure
     structural_periods: List[int] = [252]
+
+    # Stat
+    stat_periods: List[int] = [21, 63]
+
+    # factor
+    factor_periods: List[int] = [21, 63, 126, 252]

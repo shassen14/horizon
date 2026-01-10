@@ -20,6 +20,11 @@ async def main():
         default=None,
         help="Run for a specific symbol only (e.g. 'AAPL')",
     )
+    parser.add_argument(
+        "--start-at",
+        type=str,
+        help="Resume processing from this symbol alphabetically (e.g., 'M').",
+    )
     args = parser.parse_args()
 
     # 2. Initialize Logger
@@ -37,7 +42,9 @@ async def main():
         engine = FeatureEngine(logger=engine_logger)
 
         # 4. Run the engine
-        await engine.run(force_full=args.force, symbol=args.symbol)
+        await engine.run(
+            force_full=args.force, symbol=args.symbol, start_at_symbol=args.start_at
+        )
 
     except Exception as e:
         # The root logger catches any unhandled exceptions from the engine

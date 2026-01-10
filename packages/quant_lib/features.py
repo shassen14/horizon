@@ -27,7 +27,7 @@ class FeatureFactory:
             return df
         df = df.sort("time")
 
-        # Gather all expressions
+        # 1. Gather all expressions
         trend = self._get_trend_expressions()
         momentum = self._get_momentum_expressions()
         volatility = self._get_volatility_expressions()
@@ -48,11 +48,38 @@ class FeatureFactory:
         if all_exprs:
             df = df.with_columns(all_exprs)
 
+        # 2. Factor Features (Depend on Base Features)
+        # We calculate Sharpe Ratios here because they need 'return' and 'vol' columns
+        factor_exprs = self._get_factor_expressions()
+        if factor_exprs:
+            df = df.with_columns([e for e in factor_exprs if e is not None])
+
         # 3. Calculate Relative Features (requires Join, must be done after)
         if benchmark_df is not None:
             df = self._add_relative_features(df, benchmark_df)
 
         return df
+
+    def _get_factor_expressions(self) -> List[pl.Expr]:
+        """Calculates Factor features like Sharpe Ratios."""
+        cfg = self.settings
+        exprs = []
+
+        for p in cfg.factor_periods:  # [21, 63, 126, 252]
+            return_col = f"return_{p}"
+            # We use normalized ATR as our proxy for realized volatility
+            vol_col = f"atr_{cfg.atr_period}_pct"
+
+            # Sharpe Ratio = Return / Volatility
+            # We add epsilon (1e-9) to avoid division by zero
+            sharpe_expr = (
+                pl.col(return_col)
+                / (pl.col(vol_col).rolling_mean(window_size=p) + 1e-9)
+            ).alias(f"sharpe_{p}")
+
+            exprs.append(sharpe_expr)
+
+        return exprs
 
     def _get_trend_expressions(self) -> List[pl.Expr]:
         cfg = self.settings
@@ -252,25 +279,30 @@ class FeatureFactory:
 
     def _get_statistical_expressions(self) -> List[pl.Expr]:
         """
-        Returns statistical features:
-        - Rolling Skew (20)
-        - Rolling Kurtosis (20)
-        - Z-Score of Close (Distance from Mean / Std)
+        Returns statistical features (Skew, Z-Score).
+        Uses config.stat_periods (e.g., [21, 63]).
         """
         exprs = []
+        cfg = self.settings
 
-        # Polars has native rolling_skew (approx) and rolling_std
-        # Window 20 (approx 1 month) and 60 (approx 1 quarter)
-
-        for w in [20, 60]:
+        for w in cfg.stat_periods:
             # Skewness (Risk of crash)
-            exprs.append(pl.col("close").rolling_skew(window_size=w).alias(f"skew_{w}"))
+            # Note: Polars rolling_skew is not yet fully stable in all versions,
+            # but standard rolling_apply is slow. Native is preferred.
+            try:
+                skew_expr = (
+                    pl.col("close").rolling_skew(window_size=w).alias(f"skew_{w}")
+                )
+                exprs.append(skew_expr)
+            except AttributeError:
+                # Fallback if rolling_skew not available in installed polars version
+                pass
 
             # Z-Score: (Price - SMA) / StdDev
-            # This is CRITICAL for ML. It tells the model "How many sigmas away is price?"
             sma = pl.col("close").rolling_mean(window_size=w)
             std = pl.col("close").rolling_std(window_size=w)
-            z_score = ((pl.col("close") - sma) / std).alias(f"zscore_{w}")
+
+            z_score = ((pl.col("close") - sma) / (std + 1e-9)).alias(f"zscore_{w}")
             exprs.append(z_score)
 
         return exprs
@@ -321,9 +353,7 @@ class FeatureFactory:
     ) -> pl.DataFrame:
         """
         Calculates Relative Strength vs a Benchmark (e.g. SPY).
-        Requires joining, so it runs after the main expression pass.
         """
-        # Validations
         if "time" not in benchmark_df.columns or "close" not in benchmark_df.columns:
             return df
 
@@ -335,27 +365,24 @@ class FeatureFactory:
         # 2. Join
         df_merged = df.join(bench, on="time", how="left")
 
-        # 3. Handle missing benchmark days (forward fill)
+        # 3. Handle missing benchmark days
         df_merged = df_merged.with_columns(pl.col("bench_close").forward_fill())
 
-        # 4. Calculate Ratio: (Stock / Benchmark)
-        # We calculate the ratio, then normalize it by the FIRST available ratio
-        # so all RS lines start at 1.0
-
-        # Get the first valid ratio
+        # 4. Calculate Ratio: (Stock / Benchmark) / First_Ratio
+        # This normalizes the RS line to start at 1.0 for every stock
         try:
-            first_ratio = df_merged.select(
-                (pl.col("close") / pl.col("bench_close")).drop_nulls().first()
-            ).item()
-        except Exception:
-            first_ratio = None
+            # We calculate the raw ratio series first
+            raw_ratio = pl.col("close") / pl.col("bench_close")
 
-        if first_ratio:
-            rs_expr = ((pl.col("close") / pl.col("bench_close")) / first_ratio).alias(
+            # Then we divide by the first valid value of that ratio
+            # 'over' is theoretically not needed if df is one stock, but safe to keep
+            rs_expr = (raw_ratio / raw_ratio.drop_nulls().first()).alias(
                 "rs_normalized"
             )
 
             df_merged = df_merged.with_columns(rs_expr)
+        except Exception:
+            pass
 
         # Clean up temporary column
         df_merged = df_merged.drop("bench_close")

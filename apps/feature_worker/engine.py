@@ -26,13 +26,20 @@ class FeatureEngine:
         self.total_assets = 0
         self._counter_lock = asyncio.Lock()  # Use asyncio.Lock
 
-    async def run(self, force_full: bool = False, symbol: str | None = None):
+    async def run(
+        self,
+        force_full: bool = False,
+        symbol: str | None = None,
+        start_at_symbol: str | None = None,
+    ):
         """
         Main entry point.
         :param force_full: If True, ignores incremental logic and recalculates history.
         :param symbol: If set, only processes this specific ticker.
+        :param start_at_symbol: If set, skips all tickers alphabetically before this string.
         """
-        await self._load_active_assets(specific_symbol=symbol)
+        # Pass the start_at_symbol down to the loader
+        await self._load_active_assets(specific_symbol=symbol, start_at=start_at_symbol)
 
         if not self.active_assets_map:
             return
@@ -70,7 +77,9 @@ class FeatureEngine:
             self.logger.info("Re-compressing data...")
             await self._manage_compression(disable=False)
 
-    async def _load_active_assets(self, specific_symbol: str | None = None):
+    async def _load_active_assets(
+        self, specific_symbol: str | None = None, start_at: str | None = None
+    ):
         """
         Loads the map of assets marked as active from the database.
         If specific_symbol is provided, filters for just that one.
@@ -81,6 +90,10 @@ class FeatureEngine:
             if specific_symbol:
                 stmt = stmt.where(Asset.symbol == specific_symbol.upper())
 
+            if start_at:
+                # This ensures we start AT or AFTER the provided string alphabetically
+                stmt = stmt.where(Asset.symbol >= start_at.upper())
+
             stmt = stmt.order_by(Asset.symbol)
 
             result = await session.execute(stmt)
@@ -89,6 +102,11 @@ class FeatureEngine:
 
         if specific_symbol and not self.active_assets_map:
             self.logger.warning(f"Symbol '{specific_symbol}' not found or not active.")
+        elif start_at:
+            self.logger.info(
+                f"Resuming processing from symbol >= '{start_at.upper()}'."
+            )
+            self.logger.info(f"Loaded {len(self.active_assets_map)} assets.")
         else:
             self.logger.info(
                 f"Loaded {len(self.active_assets_map)} active assets to process (Sorted by Symbol)."

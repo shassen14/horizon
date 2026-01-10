@@ -107,102 +107,83 @@ def get_model_for_timeframe(unit: str, value: int) -> Type[Base]:  # type: ignor
 
 class FeaturesDaily(Base):
     """
-    The Single Source of Truth for daily technicals and statistical features.
-    Organized by analytical family.
+    The Single Source of Truth for asset-specific metrics.
     """
 
     __tablename__ = "features_daily"
 
-    # ==========================================
-    # 1. IDENTIFIERS (The Primary Key)
-    # ==========================================
+    # --- Identifiers ---
     time = Column(DateTime(timezone=True), nullable=False)
     asset_id = Column(Integer, ForeignKey("asset_metadata.id"), nullable=False)
 
-    # ==========================================
-    # 2. TREND (Direction & Strength)
-    # ==========================================
-    # Moving Averages
+    # --- 1. Price Trends (Base) ---
     sma_20 = Column(Float)
     sma_50 = Column(Float)
     sma_200 = Column(Float)
-
     ema_12 = Column(Float)
     ema_20 = Column(Float)
     ema_26 = Column(Float)
     ema_50 = Column(Float)
 
-    # MACD
+    # --- 2. Momentum & Oscillators ---
+    rsi_14 = Column(Float)
     macd = Column(Float)
     macd_signal = Column(Float)
     macd_hist = Column(Float)
+    adx_14 = Column(Float)  # Trend Strength
+    mfi_14 = Column(Float)  # Volume-weighted RSI
 
-    # Strength
-    adx_14 = Column(Float)  # Average Directional Index (Trend Strength)
+    # --- 3. Returns (Lookback Windows) ---
+    return_1 = Column(Float)
+    return_5 = Column(Float)
+    return_21 = Column(Float)  # 1 Month
+    return_63 = Column(Float)  # 1 Quarter
+    return_126 = Column(Float)  # 6 Months
+    return_252 = Column(Float)  # 1 Year
 
-    # ==========================================
-    # 3. MOMENTUM (Speed of Move)
-    # ==========================================
-    # RSI
-    rsi_14 = Column(Float)
-
-    # Returns (Period-based naming)
-    # Used for both features and ML Targets
-    return_1 = Column(Float)  # 1-Bar Change
-    return_5 = Column(Float)  # 1-Week
-    return_21 = Column(Float)  # 1-Month
-    return_63 = Column(Float)  # 1-Quarter
-    return_126 = Column(Float)  # 6-Months
-    return_252 = Column(Float)  # 1-Year
-
-    # ==========================================
-    # 4. VOLATILITY (Risk & Range)
-    # ==========================================
+    # --- 4. Volatility & Risk ---
     atr_14 = Column(Float)
     atr_14_pct = Column(Float)  # Normalized ATR
-
-    # Bollinger Bands (20, 2)
     bb_upper_20 = Column(Float)
     bb_middle_20 = Column(Float)
     bb_lower_20 = Column(Float)
-    bb_width_20 = Column(Float)  # Volatility Squeeze indicator
+    bb_width_20 = Column(Float)  # Volatility Squeeze
 
-    # ==========================================
-    # 5. VOLUME & FLOW (Conviction)
-    # ==========================================
+    # --- 5. Volume & Liquidity ---
     volume_adv_20 = Column(Float)  # Average Daily Volume
-    relative_volume = Column(Float)  # RVol
-    obv = Column(Float)  # On-Balance Volume
-    mfi_14 = Column(Float)  # Money Flow Index
+    relative_volume = Column(Float)
+    obv = Column(Float)
 
-    # ==========================================
-    # 6. STRUCTURE & STATS (Context)
-    # ==========================================
-    # Distance from 52-Week High/Low (252 bars)
-    high_252_pct = Column(Float)
-    low_252_pct = Column(Float)
+    # --- 6. Statistical Moments (Distribution Shape) ---
+    # Used for Regime detection (Crash risk)
+    skew_21 = Column(Float)
+    skew_63 = Column(Float)
+    zscore_21 = Column(Float)
+    zscore_63 = Column(Float)
 
-    # Statistical Moments (Distribution Shape)
-    skew_20 = Column(Float)
-    skew_60 = Column(Float)
-    zscore_20 = Column(Float)
-    zscore_60 = Column(Float)
+    # --- 7. Structure (Price Action Context) ---
+    high_252_pct = Column(Float)  # Distance from 52-week High
+    low_252_pct = Column(Float)  # Distance from 52-week Low
 
-    # ==========================================
-    # 7. CALENDAR (Seasonality)
-    # ==========================================
-    day_of_week = Column(Integer)  # 1=Mon, 7=Sun
-    day_of_month = Column(Integer)  # 1-31
-    month_of_year = Column(Integer)  # 1-12
-    quarter = Column(Integer)  # 1-4
+    # --- 8. Factors (Advanced Alpha Signals) ---
+    # Relative Strength vs SPY (Benchmark)
+    rs_normalized = Column(Float)
 
-    # ==========================================
-    # CONFIGURATION
-    # ==========================================
+    # Volatility-Adjusted Momentum (Sharpe Ratios)
+    # Return / Volatility. Higher is better quality momentum.
+    sharpe_21 = Column(Float)
+    sharpe_63 = Column(Float)
+    sharpe_126 = Column(Float)
+    sharpe_252 = Column(Float)
+
+    # --- 9. Calendar (Seasonality) ---
+    day_of_week = Column(Integer)
+    day_of_month = Column(Integer)
+    month_of_year = Column(Integer)
+    quarter = Column(Integer)
+
     __table_args__ = (
-        # Composite Primary Key (Required for Upserts)
         PrimaryKeyConstraint("time", "asset_id", name="pk_features_daily"),
-        # High-Performance Sort Index (Critical for API "History" endpoints)
         Index("idx_features_daily_asset_time", "asset_id", text("time DESC")),
     )
 
