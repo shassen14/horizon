@@ -38,7 +38,36 @@ class MarketContextCalculator:
                 final_df = final_df.join(feature_set, on="time", how="left")
 
         # Sort and fill missing values that may arise from joins
-        return final_df.sort("time").forward_fill()
+        return final_df.sort("time").fill_null(strategy="forward")
+
+    def calculate_asset_only_context(
+        self, asset_data: Dict[str, pl.DataFrame]
+    ) -> pl.DataFrame:
+        vix = self.calculate_vix_features(asset_data.get("VIX"))
+        trend = self.calculate_trend_features(asset_data.get("SPY"))
+        credit = self.calculate_credit_features(
+            asset_data.get("HYG"), asset_data.get("IEF")
+        )
+        rates = self.calculate_rates_features(asset_data.get("TLT"))
+
+        # Collect all non-None dataframes
+        valid_dfs = [
+            df
+            for df in [vix, trend, credit, rates]
+            if df is not None and not df.is_empty()
+        ]
+
+        if not valid_dfs:
+            return pl.DataFrame()
+
+        # Start with the first one
+        base = valid_dfs[0]
+
+        # Join the rest
+        for fs in valid_dfs[1:]:
+            base = base.join(fs, on="time", how="left")
+
+        return base.sort("time").fill_null(strategy="forward")
 
     def calculate_vix_features(self, vix_df: pl.DataFrame) -> pl.DataFrame | None:
         if vix_df is None or vix_df.is_empty():

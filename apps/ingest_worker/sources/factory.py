@@ -1,7 +1,7 @@
 # apps/ingest_worker/sources/factory.py
 
 from packages.quant_lib.interfaces import DataSource
-from .alpaca import AlpacaSource
+from .hybrid_source import HybridSource
 from .yfinance_source import YFinanceSource
 from packages.quant_lib.logging import LogManager
 
@@ -12,11 +12,11 @@ def get_data_source(source_name: str) -> DataSource:
     log_manager = LogManager(service_name="ingest-factory")
 
     if source_name == "alpaca":
-        source_logger = log_manager.get_logger("alpaca-source")
-        return AlpacaSource(logger=source_logger)
-
+        source_logger = log_manager.get_logger("hybrid-source")
+        return HybridSource(logger=source_logger)
     elif source_name == "yfinance":
-        return YFinanceSource()
+        source_logger = log_manager.get_logger("yfinance-source")
+        return YFinanceSource(logger=source_logger)
 
     else:
         raise ValueError(f"Unknown data source: {source_name}")

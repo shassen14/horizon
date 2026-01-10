@@ -1,13 +1,12 @@
 import asyncio
 import polars as pl
 from sqlalchemy import text, select, func
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 from typing import Dict
 
-# --- Library Imports ---
 from packages.quant_lib.config import settings
 from packages.database.session import get_db_session
-from packages.database.models import MarketContextDaily, FeaturesDaily
+from packages.database.models import Asset, MarketContextDaily, FeaturesDaily
 from packages.quant_lib.market_context import MarketContextCalculator
 from packages.quant_lib.market_clock import MarketClock
 
@@ -30,7 +29,7 @@ class MarketContextEngine:
         )
 
     async def run(
-        self, force_full: bool = False, chunk_size_days: int = 90, concurrency: int = 2
+        self, force_full: bool = False, chunk_size_days: int = 90, concurrency: int = 4
     ):
         self.logger.info("--- Starting Market Context Worker ---")
 
@@ -43,79 +42,60 @@ class MarketContextEngine:
             f"Processing market context from {start_date.date()} onwards..."
         )
 
-        # --- 1. FETCH ALL RAW DATA ---
-        self.logger.info("Fetching all required raw data sources...")
+        # 1. Load Asset Features ONCE (Small enough to keep in memory)
+        # SPY/VIX/Rates for 20 years is only ~5000 rows each.
+        self.logger.info("Pre-loading asset-specific context features...")
+        asset_data_map = await self._load_required_asset_features(start_date)
 
-        # A. Fetch asset-specific features
-        asset_tasks = {
-            asset: self._load_features_for_asset(asset, start_date)
-            for asset in self.REQUIRED_ASSETS
-        }
+        # Pre-calculate asset-based context (Trend, Credit, etc.) sans Breadth
+        asset_context = self.calculator.calculate_asset_only_context(asset_data_map)
 
-        # B. Fetch breadth data (the heavy part)
+        # 2. Process Breadth in Chunks AND Upsert Immediately (Streaming)
         if force_full:
-            breadth_task = self._calculate_breadth_in_chunks(
-                start_date, chunk_size_days, concurrency
+            await self._process_history_in_chunks(
+                start_date, chunk_size_days, concurrency, asset_context
             )
         else:
-            breadth_task = self._calculate_breadth_in_db(start_date)
+            # Daily incremental logic
+            breadth_df = await self._calculate_breadth_in_db(start_date)
+            if not breadth_df.is_empty():
+                final_df = self._join_and_finalize(breadth_df, asset_context)
+                await self._write_context_to_db(final_df)
 
-        # C. Run all I/O tasks concurrently
-        all_tasks = {**asset_tasks, "BREADTH_FEATURES": breadth_task}
-        results = await asyncio.gather(*all_tasks.values())
-        data_map = dict(zip(all_tasks.keys(), results))
-
-        # --- 2. DELEGATE TO CALCULATOR ---
-        self.logger.info("Calculating final context DataFrame...")
-        # The calculator's `calculate_all` method now handles the joining logic
-        # We pass the pre-calculated breadth features directly.
-        final_df = self.calculator.calculate_all_from_sources(
-            asset_data=data_map, breadth_features=data_map.get("BREADTH_FEATURES")
-        )
-
-        if final_df is None or final_df.is_empty():
-            self.logger.warning(
-                "Context calculation resulted in an empty DataFrame. Nothing to write."
-            )
-            return
-
-        # --- 3. WRITE RESULTS ---
-        await self._write_context_to_db(final_df)
         self.logger.success("✅ Market Context update complete.")
 
-    async def _get_next_processing_date(self, force_full: bool) -> date | None:
-        """Determines the start date for processing, enabling incremental updates."""
+    async def _get_next_processing_date(self, force_full: bool) -> datetime | None:
         async with get_db_session() as session:
             if force_full:
                 self.logger.warning("FORCE MODE: Recalculating all market context.")
                 result = await session.execute(select(func.min(FeaturesDaily.time)))
-                return result.scalar()
+                min_date = result.scalar()
+                # If DB is empty, default to something reasonable
+                return min_date if min_date else datetime(2000, 1, 1)
 
-            # Find the last processed date
             result = await session.execute(select(func.max(MarketContextDaily.time)))
             last_processed_date = result.scalar()
 
             if not last_processed_date:
-                self.logger.info(
-                    "No existing market context found. Starting from the beginning."
-                )
                 result = await session.execute(select(func.min(FeaturesDaily.time)))
                 return result.scalar()
 
-            # Check if we are already up to date
-            last_settled_market_day = self.clock.get_last_settled_date()
-            if last_processed_date.date() >= last_settled_market_day:
-                return None  # We are current
+            last_settled = self.clock.get_last_settled_date()
+            # Ensure types match for comparison
+            if last_processed_date.date() >= last_settled:
+                return None
 
-            # Start processing from the day after the last successful run
-            return last_processed_date.date() + timedelta(days=1)
+            return last_processed_date + timedelta(days=1)
 
-    async def _calculate_breadth_in_chunks(
-        self, start_date: date, chunk_size_days: int, concurrency: int
-    ) -> pl.DataFrame:
-        """Processes the entire history in parallel time-based chunks for the initial bulk load."""
+    async def _process_history_in_chunks(
+        self,
+        start_date: datetime,
+        chunk_size_days: int,
+        concurrency: int,
+        asset_context: pl.DataFrame,
+    ):
         self.logger.info(
-            f"Performing initial bulk breadth calculation in {chunk_size_days}-day chunks..."
+            f"Processing history in {chunk_size_days}-day chunks with concurrency={concurrency}..."
         )
 
         async with get_db_session() as session:
@@ -123,7 +103,7 @@ class MarketContextEngine:
             end_date = max_date_res.scalar()
 
         if not end_date:
-            return pl.DataFrame()
+            return
 
         date_chunks = []
         current_start = start_date
@@ -132,82 +112,85 @@ class MarketContextEngine:
             date_chunks.append((current_start, min(current_end, end_date)))
             current_start = current_end + timedelta(days=1)
 
-        self.logger.info(
-            f"Divided history into {len(date_chunks)} chunks. Processing with concurrency={concurrency}..."
-        )
+        self.logger.info(f"Scheduled {len(date_chunks)} chunks.")
 
         semaphore = asyncio.Semaphore(concurrency)
-        tasks = [
-            self._process_breadth_chunk(i + 1, len(date_chunks), start, end, semaphore)
-            for i, (start, end) in enumerate(date_chunks)
-        ]
-
-        chunk_results = await asyncio.gather(*tasks)
-        return pl.concat(
-            [df for df in chunk_results if df is not None and not df.is_empty()]
-        )
-
-    async def _process_breadth_chunk(
-        self,
-        chunk_num: int,
-        total_chunks: int,
-        start: date,
-        end: date,
-        sem: asyncio.Semaphore,
-    ) -> pl.DataFrame | None:
-        """Worker function to process a single time chunk for breadth with progress logging."""
-        async with sem:
-            progress = (chunk_num / total_chunks) * 100
-            self.logger.info(
-                f"  -> Processing chunk {chunk_num}/{total_chunks} ({start.date()} to {end.date()}) [{progress:.1f}%]..."
+        tasks = []
+        for i, (start, end) in enumerate(date_chunks):
+            # Pass asset_context to the worker so it can join and write immediately
+            task = asyncio.create_task(
+                self._process_and_write_chunk(
+                    i + 1, len(date_chunks), start, end, semaphore, asset_context
+                )
             )
+            tasks.append(task)
+
+        # Wait for all chunks to finish writing
+        await asyncio.gather(*tasks)
+
+    async def _process_and_write_chunk(
+        self, chunk_num, total, start, end, sem, asset_context
+    ):
+        """Worker that calculates breadth, joins context, and WRITES TO DB immediately."""
+        async with sem:
+            self.logger.info(
+                f"  -> Processing Chunk {chunk_num}/{total} ({start.date()} to {end.date()})..."
+            )
+
             try:
-                return await self._calculate_breadth_in_db(start, end)
+                # 1. Calc Breadth (Heavy DB query / Polars agg)
+                breadth_df = await self._calculate_breadth_in_db(start, end)
+                if breadth_df.is_empty():
+                    return
+
+                # 2. Join with Asset Context (In-Memory Polars Join)
+                # Filter asset_context to just this chunk's timeframe to speed up join
+                if asset_context is not None:
+                    # Polars filtering requires timezone awareness matching
+                    # Ensure start/end are timezone-aware if the DF is
+                    chunk_assets = asset_context.filter(
+                        (pl.col("time") >= start) & (pl.col("time") <= end)
+                    )
+                else:
+                    chunk_assets = None
+
+                final_df = self._join_and_finalize(breadth_df, chunk_assets)
+
+                # 3. Write to DB Immediately
+                rows = await self._write_context_to_db(final_df)
+                self.logger.info(
+                    f"     -> Chunk {chunk_num} Complete: Wrote {rows} rows."
+                )
+
             except Exception as e:
-                self.logger.error(f"Failed to process chunk {chunk_num}: {e}")
-                return None
+                self.logger.error(f"Failed chunk {chunk_num}: {e}")
 
     async def _calculate_breadth_in_db(
         self, start_date: datetime, end_date: datetime = None
     ) -> pl.DataFrame:
         """
-        OPTIMIZED: Fetches raw columns and aggregates in Polars on the M1 Max.
-        This avoids the heavy JOIN/GROUP BY on the slow NAS.
+        Calculates breadth stats using a Polars aggregation on fetched columns.
+        This shifts load from DB CPU to App CPU (M1 Max).
         """
-        # 1. Fetch Features (SMA)
-        query_feat = f"""
-            SELECT time, asset_id, sma_20, sma_50, sma_200 
-            FROM features_daily 
-            WHERE time >= '{start_date.isoformat()}'
-        """
-        if end_date:
-            query_feat += f" AND time <= '{end_date.isoformat()}'"
-
-        # 2. Fetch Prices (Close)
-        query_price = f"""
-            SELECT time, asset_id, close 
-            FROM market_data_daily 
-            WHERE time >= '{start_date.isoformat()}'
+        # Fetch only necessary columns to minimize I/O
+        query = f"""
+            SELECT fd.time, mdd.close, fd.sma_20, fd.sma_50, fd.sma_200
+            FROM features_daily fd
+            JOIN market_data_daily mdd ON fd.time = mdd.time AND fd.asset_id = mdd.asset_id
+            WHERE fd.time >= '{start_date.isoformat()}'
         """
         if end_date:
-            query_price += f" AND time <= '{end_date.isoformat()}'"
+            query += f" AND fd.time <= '{end_date.isoformat()}'"
 
-        # Run queries in parallel
-        # Note: We use to_thread because read_database_uri is blocking
-        feat_df, price_df = await asyncio.gather(
-            asyncio.to_thread(pl.read_database_uri, query_feat, self.db_url),
-            asyncio.to_thread(pl.read_database_uri, query_price, self.db_url),
-        )
+        # Use asyncio.to_thread for blocking IO
+        df = await asyncio.to_thread(pl.read_database_uri, query, self.db_url)
 
-        if feat_df.is_empty() or price_df.is_empty():
+        if df.is_empty():
             return pl.DataFrame()
 
-        # 3. Join & Aggregate in Memory (Fast on M1)
-        # Polars makes this instant
-        merged = feat_df.join(price_df, on=["time", "asset_id"], how="inner")
-
-        breadth = (
-            merged.group_by("time")
+        # Aggregate in Polars (Fast)
+        return (
+            df.group_by("time")
             .agg(
                 [
                     (pl.col("close") > pl.col("sma_20"))
@@ -224,7 +207,17 @@ class MarketContextEngine:
             .sort("time")
         )
 
-        return breadth
+    def _join_and_finalize(
+        self, breadth_df: pl.DataFrame, asset_context: pl.DataFrame
+    ) -> pl.DataFrame:
+        if asset_context is not None and not asset_context.is_empty():
+            return (
+                breadth_df.join(asset_context, on="time", how="left")
+                .sort("time")
+                .fill_null(strategy="forward")
+            )
+
+        return breadth_df
 
     async def _load_required_asset_features(
         self, start_date: datetime
@@ -239,22 +232,63 @@ class MarketContextEngine:
     async def _load_features_for_asset(
         self, symbol: str, start_date: datetime
     ) -> pl.DataFrame:
-        query = f"""
-            SELECT fd.*, mdd.close
-            FROM features_daily fd
-            JOIN asset_metadata a ON fd.asset_id = a.id
-            JOIN market_data_daily mdd ON fd.time = mdd.time AND fd.asset_id = a.id
-            WHERE a.symbol = '{symbol}' AND fd.time >= '{start_date.isoformat()}'
-            ORDER BY fd.time ASC
         """
-        return await asyncio.to_thread(pl.read_database_uri, query, self.db_url)
+        OPTIMIZED: Fetches Features and Prices separately to avoid DB-side Joins.
+        Joins in memory on the Client (Mac) to reduce NAS I/O pressure.
+        """
+        # 1. Resolve Asset ID first (Lightweight)
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(Asset.id).where(Asset.symbol == symbol)
+            )
+            asset_id = result.scalar()
+
+        if not asset_id:
+            self.logger.warning(f"Asset '{symbol}' not found in DB.")
+            return pl.DataFrame()
+
+        # 2. Construct Simple Queries (No Joins = Fast Index Scans)
+        # Fetch all columns from features_daily
+        q_features = f"""
+            SELECT * 
+            FROM features_daily 
+            WHERE asset_id = {asset_id} AND time >= '{start_date.isoformat()}'
+            ORDER BY time ASC
+        """
+
+        # Fetch just close price from market_data_daily
+        q_prices = f"""
+            SELECT time, close 
+            FROM market_data_daily 
+            WHERE asset_id = {asset_id} AND time >= '{start_date.isoformat()}'
+            ORDER BY time ASC
+        """
+
+        # 3. Execute in Parallel (Low IO overhead compared to Join)
+        self.logger.info(f"  -> Fetching data for {symbol}...")
+        features_df, prices_df = await asyncio.gather(
+            asyncio.to_thread(pl.read_database_uri, q_features, self.db_url),
+            asyncio.to_thread(pl.read_database_uri, q_prices, self.db_url),
+        )
+
+        if features_df.is_empty():
+            return pl.DataFrame()
+
+        # 4. Join in Memory (Instant on M1)
+        # We join on 'time'. Note: features_daily already has asset_id, prices_df implies it.
+        return features_df.join(prices_df, on="time", how="left")
 
     async def _write_context_to_db(self, df: pl.DataFrame):
         """High-Performance Upsert for MarketContextDaily with progress logging."""
+
+        if df.is_empty():
+            return
+
         total_rows = len(df)
         self.logger.info(f"Preparing to upsert {total_rows} rows to the database...")
 
         cols = ["time"] + [c for c in df.columns if c != "time"]
+        # Cast to float32 to save network bandwidth and DB space if desired, but float64 is safer standard
         df_clean = df.select(cols).fill_nan(None)
         records = list(df_clean.iter_rows())
 
@@ -286,7 +320,8 @@ class MarketContextEngine:
                 INSERT INTO "{target_table}" ({cols_str}) SELECT {cols_str} FROM {temp_table}
                 ON CONFLICT (time) DO UPDATE SET {update_set_str};
             """
+
             self.logger.info("Executing final upsert from temp table...")
             await session.execute(text(upsert_query))
             await session.commit()
-            self.logger.success("Database write complete.")
+            return len(records)

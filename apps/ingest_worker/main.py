@@ -23,6 +23,11 @@ async def main():
         help="Ingestion phase to run.",
     )
     parser.add_argument(
+        "--force-metadata",
+        action="store_true",
+        help="Force a full re-scan of asset metadata, ignoring the cache.",
+    )
+    parser.add_argument(
         "--source",
         choices=["alpaca", "yfinance"],
         default="alpaca",
@@ -63,7 +68,7 @@ async def main():
         # YFinance cannot scan for new assets, so we only sync metadata if using Alpaca.
         # Otherwise, we just load what we have.
         if args.source == "alpaca" and args.mode in ["all", "metadata"]:
-            await engine.run_metadata_sync()
+            await engine.run_metadata_sync(force_rescan=args.force_metadata)
         else:
             await engine.load_existing_assets()
 

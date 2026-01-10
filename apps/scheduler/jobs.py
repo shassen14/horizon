@@ -1,5 +1,6 @@
 # apps/scheduler/jobs.py
 
+from apps.market_context_worker.engine import MarketContextEngine
 from packages.quant_lib.config import settings
 from packages.quant_lib.logging import LogManager
 from packages.quant_lib.market_clock import MarketClock
@@ -47,9 +48,15 @@ class JobRunner:
             await ingest_engine.run_metadata_sync()
             await ingest_engine.run_daily_ingestion()
 
-            # 2. Features
-            feature_engine = FeatureEngine(logger)
+            # 2. Feature Generation
+            feature_logger = self.log_manager.get_logger("feature-daily")
+            feature_engine = FeatureEngine(settings, feature_logger)
             await feature_engine.run()
+            logger.info("--- Feature Generation Finished ---")
+
+            # 3. Market Contex
+            await self.run_market_context()
+            logger.info("--- Market Context Finished ---")
 
             logger.success("<<< Complete.")
         except Exception as e:
@@ -73,6 +80,21 @@ class JobRunner:
             optimizer = DatabaseOptimizer(logger)
             await optimizer.run_maintenance()
             logger.success("<<< Complete.")
+        except Exception as e:
+            logger.exception(f"Job Failed: {e}")
+
+    async def run_market_context(self):
+        """Calculates market-wide breadth and context metrics."""
+        logger = self.log_manager.get_logger("market-context")
+        try:
+            logger.info(">>> Starting Market Context Calculation...")
+
+            # We don't need --force for the daily scheduled run.
+            # We use default chunking/concurrency settings.
+            engine = MarketContextEngine(logger)
+            await engine.run(force_full=False, chunk_size_days=90, concurrency=4)
+
+            logger.success("<<< Market Context Complete.")
         except Exception as e:
             logger.exception(f"Job Failed: {e}")
 

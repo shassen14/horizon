@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Set
 from pydantic import computed_field, Field
 from pydantic_settings import SettingsConfigDict
 from .base import EnvConfig
@@ -8,6 +8,9 @@ class ScreenerConfig(EnvConfig):
     asset_classes: str = "us_equity"
     exchanges_allowed: str = "NASDAQ,NYSE,ARCA,BATS"
     exchanges_blocked: str = "OTC"
+    core_symbols: str = Field(
+        validation_alias="CORE_SYMBOLS", default="SPY,QQQ,VIX,HYG,IEF,TLT"
+    )
 
     min_price: float = Field(default=5.0)
     min_dollar_vol: float = Field(default=10_000_000.0)
@@ -36,3 +39,10 @@ class ScreenerConfig(EnvConfig):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @computed_field
+    @property
+    def core_symbols_list(self) -> List[str]:
+        if not self.core_symbols:
+            return []
+        return [s.strip().upper() for s in self.core_symbols.split(",")]

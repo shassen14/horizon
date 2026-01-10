@@ -1,3 +1,4 @@
+# apps/ingest_worker/sources/yfinance_source.py
 import pandas as pd
 import yfinance as yf
 import polars as pl
@@ -7,6 +8,18 @@ from packages.quant_lib.interfaces import DataSource
 
 
 class YFinanceSource(DataSource):
+    def __init__(self, logger=None):
+        self.logger = logger
+        # Maps our internal, clean symbols to what the yfinance API expects.
+        self.symbol_map_to_external = {
+            "VIX": "^VIX",
+            # Add other special symbols here if needed, e.g., "DXY": "DX-Y.NYB"
+        }
+        # Create the reverse map for cleaning up results
+        self.symbol_map_to_internal = {
+            v: k for k, v in self.symbol_map_to_external.items()
+        }
+
     def get_all_tickers(self) -> List[Dict[str, Any]]:
         # Yahoo doesn't support "Listing all stocks" easily.
         # We rely on Alpaca for metadata/screening.
@@ -27,14 +40,21 @@ class YFinanceSource(DataSource):
         if not symbols:
             return pl.DataFrame()
 
-        # 1. Fetch Data (Vectorized download)
+        yf_symbols = [
+            self.symbol_map_to_external.get(s.upper(), s.upper()) for s in symbols
+        ]
+
+        if self.logger:
+            self.logger.info(
+                f"YFinanceSource: Requesting {symbols} -> Mapped to {yf_symbols}"
+            )
+
         try:
             start_str = start_dt.strftime("%Y-%m-%d")
             end_str = end_dt.strftime("%Y-%m-%d")
 
-            # Group by ticker ensures (Symbol, Open) structure usually
             pdf = yf.download(
-                tickers=symbols,
+                tickers=yf_symbols,
                 start=start_str,
                 end=end_str,
                 interval="1d",
@@ -46,98 +66,49 @@ class YFinanceSource(DataSource):
             )
 
             if pdf.empty:
-                return pl.DataFrame()
-
-            processed_frames = []
-
-            # 2. Extract and Flatten Data per Symbol
-            # Check if we have a MultiIndex (Multiple tickers) or Flat Index (Single ticker)
-            is_multi_index = isinstance(pdf.columns, pd.MultiIndex)
-
-            # Helper to process a single symbol's dataframe
-            def process_single_symbol_df(sym_df, sym_name):
-                # Drop rows where all columns are NaN
-                sym_df = sym_df.dropna(how="all")
-                if sym_df.empty:
-                    return None
-
-                # Reset index to make 'Date' a column
-                sym_df = sym_df.reset_index()
-
-                # Flatten columns: Lowercase and strip whitespace
-                # yfinance returns 'Date', 'Open', 'High'...
-                sym_df.columns = [str(c).lower().strip() for c in sym_df.columns]
-
-                # Rename 'date' to 'time'
-                if "date" in sym_df.columns:
-                    sym_df = sym_df.rename(columns={"date": "time"})
-
-                # 4. Convert to Polars
-                try:
-                    pldf = pl.from_pandas(sym_df)
-                except Exception:
-                    return None
-
-                # A. Handle Volume (Float -> Int)
-                if "volume" in pldf.columns:
-                    # Fill NaNs with 0, then cast to Int64
-                    pldf = pldf.with_columns(
-                        pl.col("volume").fill_null(0).cast(pl.Int64)
+                if self.logger:
+                    self.logger.warning(
+                        f"yfinance returned empty DataFrame for {yf_symbols}"
                     )
-                else:
-                    pldf = pldf.with_columns(pl.lit(0).cast(pl.Int64).alias("volume"))
-
-                # B. Handle Prices (Ensure Float64)
-                for col in ["open", "high", "low", "close"]:
-                    if col in pldf.columns:
-                        pldf = pldf.with_columns(pl.col(col).cast(pl.Float64))
-                    else:
-                        # Should not happen with valid data, but safe fallback
-                        pldf = pldf.with_columns(
-                            pl.lit(0.0).cast(pl.Float64).alias(col)
-                        )
-
-                # C. Add Metadata
-                pldf = pldf.with_columns(pl.lit(sym_name).alias("symbol"))
-
-                return pldf
-
-            if is_multi_index:
-                # Iterate through the top level (Symbols)
-                # pdf.columns.levels[0] contains the unique tickers
-                for sym in symbols:
-                    try:
-                        # Extract cross-section for this symbol
-                        # This removes the top level (Symbol), leaving just (Open, High...)
-                        sym_df = pdf.xs(sym, axis=1, level=0, drop_level=True)
-                        pldf = process_single_symbol_df(sym_df, sym)
-                        if pldf is not None:
-                            processed_frames.append(pldf)
-                    except KeyError:
-                        continue
-            else:
-                # Single symbol case (Flat index)
-                # The columns are just 'Open', 'High', etc.
-                # We assume the user passed 1 symbol or yfinance flattened it.
-                # We use the first symbol from the input list.
-                sym = symbols[0]
-                pldf = process_single_symbol_df(pdf, sym)
-                if pldf is not None:
-                    processed_frames.append(pldf)
-
-            if not processed_frames:
                 return pl.DataFrame()
 
-            # 3. Combine
-            df = pl.concat(processed_frames)
+            # --- ROBUST DATA FLATTENING & CLEANING ---
 
-            # 4. Standardize Schema
-            # Ensure time is UTC
+            # Case 1: Multiple Tickers -> MultiIndex
+            if isinstance(pdf.columns, pd.MultiIndex):
+                # When yfinance uses group_by='ticker', the ticker is level 0 of the columns
+                # We stack that level into the index.
+                pdf = pdf.stack(level=0, future_stack=True).rename_axis(
+                    ["Date", "symbol"]
+                )
+
+            # After stacking or for single tickers, reset the index
+            pdf.reset_index(inplace=True)
+
+            # --- THE FIX: Use the column cleaner ---
+            pdf = _clean_columns(pdf)
+
+            # Rename 'date' to 'time' (now works because columns are simple)
+            pdf.rename(columns={"date": "time"}, inplace=True)
+
+            # Ensure 'symbol' column exists
+            if "symbol" not in pdf.columns and len(yf_symbols) == 1:
+                pdf["symbol"] = yf_symbols[0]
+
+            if "symbol" not in pdf.columns:
+                raise ValueError("Could not determine symbol column.")
+
+            # --- Convert to Polars and standardize ---
+            df = pl.from_pandas(pdf)
+
+            # Remap symbol back to internal representation ('^VIX' -> 'VIX')
+            df = df.with_columns(pl.col("symbol").replace(self.symbol_map_to_internal))
+
+            # Clean and add missing columns
             df = df.with_columns(
                 [
                     pl.col("time").dt.replace_time_zone("UTC"),
-                    # Since Yahoo doesn't give us VWAP, we calculate (High + Low + Close) / 3
-                    # This ensures the column is populated with a mathematically useful value.
+                    pl.col("volume").fill_null(0).cast(pl.Int64),
                     ((pl.col("high") + pl.col("low") + pl.col("close")) / 3)
                     .cast(pl.Float64)
                     .alias("vwap"),
@@ -145,7 +116,6 @@ class YFinanceSource(DataSource):
                 ]
             )
 
-            # Select final schema to match database
             target_cols = [
                 "time",
                 "symbol",
@@ -157,11 +127,65 @@ class YFinanceSource(DataSource):
                 "vwap",
                 "trade_count",
             ]
-
-            # Filter for columns that actually exist (safety check)
             available = [c for c in target_cols if c in df.columns]
+
             return df.select(available)
 
         except Exception as e:
-            print(f"YFinance Error: {e}")
+            if self.logger:
+                self.logger.error(
+                    f"YFinance Error for {yf_symbols}: {e}", exc_info=True
+                )
+            else:
+                print(f"YFinance Error: {e}")
             return pl.DataFrame()
+
+    def get_ticker_metadata(self, symbol: str) -> Dict[str, Any] | None:
+        """
+        Fetches basic metadata for a single symbol from yfinance.
+        """
+        try:
+            ticker = yf.Ticker(symbol)
+            # .info is a dictionary containing metadata
+            info = ticker.info
+
+            # We only need a few key fields to match the Alpaca structure
+            if info:
+                return {
+                    "symbol": symbol,  # Note: this will be '^VIX'
+                    "name": info.get("longName", info.get("shortName")),
+                    "exchange": info.get("exchange", "INDEX"),
+                    "asset_class": "index",  # We can classify it ourselves
+                }
+            return None
+        except Exception as e:
+            # yfinance can be noisy with errors for delisted tickers
+            print(f"yfinance metadata error for {symbol}: {e}")
+            return None
+
+
+def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Handles yfinance's inconsistent column naming (strings, tuples, tuple-strings).
+    """
+    new_cols = []
+    for col in df.columns:
+        # It might be a tuple ('Close', 'AAPL') or a string "('Close', 'AAPL')"
+        # We try to evaluate it if it's a string representation of a tuple
+        try:
+            # Check if it's a string that looks like a tuple
+            if isinstance(col, str) and col.startswith("(") and col.endswith(")"):
+                col = eval(col)
+        except (SyntaxError, NameError):
+            pass  # It's just a regular string
+
+        if isinstance(col, tuple):
+            # Take the first element if it's descriptive (e.g., 'Close')
+            # Ignore empty strings
+            name = col[0] if col[0] else col[1]
+            new_cols.append(name.lower().strip())
+        else:
+            new_cols.append(str(col).lower().strip())
+
+    df.columns = new_cols
+    return df

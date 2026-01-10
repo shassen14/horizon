@@ -65,7 +65,7 @@ class IngestionEngine:
         else:
             self.logger.info(f"Loaded {len(self.active_assets_map)} assets.")
 
-    async def run_metadata_sync(self):
+    async def run_metadata_sync(self, force_rescan: bool = False):
         """
         Smart Metadata Sync:
         1. Checks if DB metadata is fresh.
@@ -74,28 +74,33 @@ class IngestionEngine:
         """
         self.logger.info("--- Phase 1: Metadata Sync & Screener ---")
 
-        # --- A. STALENESS CHECK ---
-        async with get_db_session() as session:
-            result = await session.execute(func.max(Asset.last_updated))
-            last_update = result.scalar()
-
         should_run_screener = True
-        if last_update:
-            if last_update.tzinfo is None:
-                last_update = last_update.replace(tzinfo=timezone.utc)
 
-            age = datetime.now(timezone.utc) - last_update
-
-            if age < timedelta(hours=settings.ingestion.metadata_cache_hours):
-                self.logger.info(
-                    f"Metadata is fresh ({age.total_seconds()//3600:.1f}h old)."
-                )
-                self.logger.warning("SKIPPING heavy screener/probe.")
-                should_run_screener = False
-            else:
-                self.logger.info("Metadata is stale. Running full update.")
+        if force_rescan:
+            self.logger.warning("⚠️ FORCE MODE: Bypassing metadata cache.")
         else:
-            self.logger.info("No metadata found (First run). Running full update.")
+            # --- A. STALENESS CHECK ---
+            async with get_db_session() as session:
+                result = await session.execute(func.max(Asset.last_updated))
+                last_update = result.scalar()
+
+            should_run_screener = True
+            if last_update:
+                if last_update.tzinfo is None:
+                    last_update = last_update.replace(tzinfo=timezone.utc)
+
+                age = datetime.now(timezone.utc) - last_update
+
+                if age < timedelta(hours=settings.ingestion.metadata_cache_hours):
+                    self.logger.info(
+                        f"Metadata is fresh ({age.total_seconds()//3600:.1f}h old)."
+                    )
+                    self.logger.warning("SKIPPING heavy screener/probe.")
+                    should_run_screener = False
+                else:
+                    self.logger.info("Metadata is stale. Running full update.")
+            else:
+                self.logger.info("No metadata found (First run). Running full update.")
 
         # --- B. FAST PATH (Skip Probe) ---
         if not should_run_screener:
@@ -115,6 +120,9 @@ class IngestionEngine:
         # 1. Fetch Metadata
         all_assets = self.source.get_all_tickers()
         self.logger.info(f"Alpaca returned {len(all_assets)} total tradable assets.")
+
+        # Convert to a dictionary for easy lookup: { 'symbol': {metadata} }
+        asset_dict = {a["symbol"]: a for a in all_assets}
 
         # 2. Filter (Memory)
         allowed_exchanges = settings.screener.allowed_exchanges_list
@@ -190,12 +198,26 @@ class IngestionEngine:
                 f"  Probe Batch {i//PROBE_BATCH_SIZE + 1}: {len(batch)} -> {len(stats)} qualified."
             )
 
-        # --- D. UPDATE DATABASE & STATE ---
         self.logger.info(
-            f"Updating Database with {len(valid_symbols_set)} active assets..."
+            f"Data Probe complete. Found {len(valid_symbols_set)} assets meeting quality criteria."
         )
 
-        quality_assets = [a for a in candidates if a["symbol"] in valid_symbols_set]
+        # A. Start with the symbols that passed the probe
+        final_active_symbols = valid_symbols_set
+
+        # B. Add the "Must-Have" Core Symbols, ensuring they are always active
+        core_list = settings.screener.core_symbols_list
+        self.logger.info(f"Force-including {len(core_list)} core symbols: {core_list}")
+        final_active_symbols.update(core_list)
+
+        # --- D. UPDATE DATABASE & STATE ---
+        self.logger.info(
+            f"Updating Database with {len(final_active_symbols)} total active assets..."
+        )
+
+        quality_assets = [
+            asset_dict[s] for s in final_active_symbols if s in asset_dict
+        ]
         active_symbols_list = [a["symbol"] for a in quality_assets]
 
         async with get_db_session() as session:
