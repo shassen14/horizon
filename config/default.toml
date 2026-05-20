@@ -1,0 +1,14 @@
+# Non-secret application config. Committed to git. Secrets live in .env.
+
+[ingest]
+symbols = ["AAPL", "MSFT", "GOOGL", "AMZN"]
+lookback_days = 730
+
+[scheduler]
+ingest_time = "18:00"
+features_time = "18:30"
+timezone = "America/New_York"
+
+[api]
+port = 8080
+cors_origins = ["http://localhost:5173"]
