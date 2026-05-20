@@ -1,0 +1,11 @@
+[package]
+name = "horizon-quality"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono.workspace = true
+horizon-db = { version = "0.1.0", path = "../horizon-db" }
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
