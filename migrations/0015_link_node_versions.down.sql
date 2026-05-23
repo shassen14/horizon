@@ -1,0 +1,2 @@
+ALTER TABLE deployments DROP CONSTRAINT deployments_node_version_fkey;
+ALTER TABLE predictions DROP CONSTRAINT predictions_node_version_fkey;

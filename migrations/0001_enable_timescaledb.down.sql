@@ -1,0 +1,3 @@
+-- Intentionally a no-op. Dropping the timescaledb extension would CASCADE and
+-- take every hypertable (and thus all market data) with it, so reverting this
+-- first migration deliberately leaves the extension in place.
