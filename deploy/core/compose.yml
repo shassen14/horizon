@@ -1,0 +1,50 @@
+# Horizon core stack — the always-on Rust services (api + scheduler) plus the tunnel.
+# Runs on any always-on host; connects out to the infra stack's TimescaleDB + MLflow
+# (see ../infra). Copy .env.example -> .env first.
+#
+# NOTE: horizon-api/horizon-scheduler are currently stubs. The image builds and runs,
+# but won't do real work until those binaries are implemented.
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/core/Dockerfile
+    image: horizon-core:latest
+    container_name: horizon-api
+    restart: unless-stopped
+    command: ["horizon-api"]
+    env_file: .env
+    ports:
+      - "${API_PORT}:8080"
+    networks:
+      - horizon_net
+
+  scheduler:
+    # Reuses the image built by `api` — no second build.
+    image: horizon-core:latest
+    container_name: horizon-scheduler
+    restart: unless-stopped
+    command: ["horizon-scheduler"]
+    env_file: .env
+    depends_on:
+      - api
+    networks:
+      - horizon_net
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: horizon-tunnel
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      - TUNNEL_TRANSPORT_PROTOCOL=http2
+    depends_on:
+      - api
+    networks:
+      - horizon_net
+
+networks:
+  horizon_net:
+    driver: bridge

@@ -1,0 +1,71 @@
+# Horizon infra stack — the stateful backing services.
+# TimescaleDB (app DB + MLflow backend), MLflow server, adminer.
+# Host it wherever durable storage lives. The Rust core that connects to these
+# runs separately (see ../core). Copy .env.example -> .env before bringing it up.
+
+services:
+  database:
+    image: timescale/timescaledb:latest-pg16
+    container_name: horizon-db
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${DB_PORT}:5432"
+    # Prevents 'No space left on device' during VACUUM on large hypertables.
+    shm_size: "2gb"
+    volumes:
+      - ${HORIZON_DATA_ROOT}/timescaledb:/var/lib/postgresql/data
+      # Bootstraps the MLflow backend DB + role on first init (empty data dir only).
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - horizon_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    build:
+      context: ./mlflow
+    image: horizon-mlflow:latest
+    container_name: horizon-mlflow
+    restart: unless-stopped
+    env_file: .env
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5002
+      - --backend-store-uri=postgresql+psycopg2://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@database:5432/${MLFLOW_DB_NAME}
+      - --default-artifact-root=/mlartifacts
+      - --serve-artifacts
+      - --gunicorn-opts=--timeout=120
+    ports:
+      - "${MLFLOW_PORT}:5002"
+    volumes:
+      - ${HORIZON_DATA_ROOT}/mlartifacts:/mlartifacts
+    networks:
+      - horizon_net
+    depends_on:
+      database:
+        condition: service_healthy
+
+  adminer:
+    image: adminer:latest
+    container_name: horizon-db-admin
+    restart: unless-stopped
+    ports:
+      - "${ADMINER_PORT}:8080"
+    networks:
+      - horizon_net
+    depends_on:
+      - database
+
+networks:
+  horizon_net:
+    driver: bridge
