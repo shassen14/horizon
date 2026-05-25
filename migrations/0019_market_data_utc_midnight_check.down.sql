@@ -1,0 +1,2 @@
+ALTER TABLE market_data_daily
+DROP CONSTRAINT market_data_daily_utc_midnight;

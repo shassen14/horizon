@@ -1,0 +1,1 @@
+DROP INDEX idx_market_data_asset_time;

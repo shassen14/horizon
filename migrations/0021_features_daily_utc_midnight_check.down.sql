@@ -1,0 +1,2 @@
+ALTER TABLE features_daily
+DROP CONSTRAINT features_daily_utc_midnight;
