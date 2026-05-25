@@ -2,3 +2,11 @@
 name = "horizon-db"
 version = "0.1.0"
 edition = "2024"
+
+[dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
+rust_decimal = "1.42.0"
+serde.workspace = true
+sqlx = { workspace = true, features = ["rust_decimal", "migrate"] }
+tokio.workspace = true

@@ -31,3 +31,27 @@ With `DATABASE_URL` set in `.env`:
 sqlx migrate run     # apply pending migrations
 sqlx migrate info    # show applied/pending status
 ```
+
+## Tests
+
+```bash
+cargo test --workspace
+```
+
+Integration tests use `#[sqlx::test]`: each spins up a fresh, ephemeral database,
+runs all migrations against it, hands the test a pool, then drops it. They need
+`DATABASE_URL` pointing at a server allowed to create databases — no real data is
+touched.
+
+## Offline builds (`SQLX_OFFLINE`)
+
+sqlx's `query!` macros normally verify SQL against a live database at compile
+time. The committed `.sqlx/` directory caches those checks so builds (and CI) work
+without a database:
+
+```bash
+SQLX_OFFLINE=true cargo build --workspace   # build from cached query metadata
+cargo sqlx prepare --workspace              # regenerate .sqlx after editing any query!
+```
+
+Regenerate and commit `.sqlx/` whenever you add or change a `query!`/`query_scalar!`.
