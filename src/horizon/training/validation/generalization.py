@@ -1,6 +1,6 @@
 """Generalization check: train vs validation score gap must stay below threshold."""
 
-from training.validation.base import BaseValidator, ValidationResult
+from horizon.training.validation.base import BaseValidator, ValidationResult
 
 
 class GeneralizationValidator(BaseValidator):

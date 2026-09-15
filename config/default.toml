@@ -1,8 +1,21 @@
 # Non-secret application config. Committed to git. Secrets live in .env.
+[alpaca]
+feed = "iex"                             # free plan; "sip" needs a paid subscription
+history_floor = "2016-01-01"             # IEX history start; new-asset backfill begins here
+rate_limit_per_min = 190                 # safety margin under the 200/min budget
+base_url = "https://data.alpaca.markets"
 
 [ingest]
-symbols = ["AAPL", "MSFT", "GOOGL", "AMZN"]
-lookback_days = 730
+max_inflight_batches = 5 # concurrency cap (bounds memory)
+insert_chunk_rows = 8000 # rows per insert_bars call
+
+[screener]
+allowed_exchanges = ["XNYS", "XNAS", "ARCX", "BATS"]
+blocked_exchanges = []
+asset_classes = ["us_equity"]
+min_price = 5.0
+min_dollar_vol = 1_000_000
+core_symbols = ["SPY", "QQQ"]
 
 [scheduler]
 ingest_time = "18:00"

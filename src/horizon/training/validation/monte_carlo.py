@@ -1,6 +1,6 @@
 """Monte Carlo check: real score must beat date-shuffled permutations (p < 0.05)."""
 
-from training.validation.base import BaseValidator, ValidationResult
+from horizon.training.validation.base import BaseValidator, ValidationResult
 
 
 class MonteCarloValidator(BaseValidator):

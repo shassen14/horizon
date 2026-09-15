@@ -1,0 +1,29 @@
+[project]
+name = "horizon"
+version = "0.1.0"
+description = "Market data ingestion, feature pipeline, and ML training/inference for the Horizon trading research platform"
+readme = "README.md"
+authors = [{ name = "Samir Hassen", email = "fake@email.com" }]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "pydantic>=2.13.4",
+  "pyyaml>=6.0.3",
+  "polars>=1.40.1",
+  "psycopg[binary,pool]>=3.3.5",
+]
+
+
+[project.scripts]
+horizon-train = "horizon.training.train:main"
+horizon-certify = "horizon.training.certify:main"
+horizon-predict = "horizon.training.predict:main"
+
+[project.optional-dependencies]
+train = ["lightgbm>=4.7.0", "mlflow>=3.16.0", "scikit-learn>=1.9.1"]
+
+[build-system]
+requires = ["uv_build>=0.11.15,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["mypy>=2.3.1", "pytest>=9.1.1", "pytest-asyncio>=1.4.0", "ruff>=0.16.7"]

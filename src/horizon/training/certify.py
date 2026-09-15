@@ -1,6 +1,6 @@
 """Entry point: run the validator suite against a trained model and gate promotion."""
 
-from training.validation.runner import run_all
+from horizon.training.validation.runner import run_all
 
 
 def main() -> None:

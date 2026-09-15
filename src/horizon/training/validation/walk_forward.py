@@ -1,6 +1,6 @@
 """Walk-forward check: median fold score clears threshold, with embargo = horizon."""
 
-from training.validation.base import BaseValidator, ValidationResult
+from horizon.training.validation.base import BaseValidator, ValidationResult
 
 
 class WalkForwardValidator(BaseValidator):

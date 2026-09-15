@@ -1,6 +1,6 @@
 """Ablation check (informational): warns if one feature dominates model impact."""
 
-from training.validation.base import BaseValidator, ValidationResult
+from horizon.training.validation.base import BaseValidator, ValidationResult
 
 
 class AblationValidator(BaseValidator):
