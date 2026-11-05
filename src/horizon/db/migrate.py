@@ -7,7 +7,10 @@ MIGRATION_LOCK_ID = 727274
 
 
 def migrate(conninfo: str, migration_dir: Path) -> list[int]:
+    # Autocommit makes conn.transaction() below a real BEGIN/COMMIT, not a savepoint.
     with psycopg.connect(conninfo, autocommit=True) as conn:
+        # Taken before reading the tracking table, so a second runner can't act on a
+        # stale list. Session-level, so it survives each migration's commit.
         conn.execute("SELECT pg_advisory_lock(%s)", (MIGRATION_LOCK_ID,))
         conn.execute("""CREATE TABLE IF NOT EXISTS schema_migrations (
                 version INT,
@@ -47,6 +50,7 @@ def migrate(conninfo: str, migration_dir: Path) -> list[int]:
                     )
                 continue
 
+            # The migration and its tracking row commit together or not at all.
             with conn.transaction():
                 conn.execute(sql)
                 conn.execute(
