@@ -1,7 +1,10 @@
-import psycopg
+import pytest
+from psycopg_pool import AsyncConnectionPool
 
 
-def test_migrated_db_has_tables(migrated_db: str) -> None:
-    with psycopg.connect(migrated_db) as conn:
-        table = conn.execute("SELECT to_regclass('market_data_daily')").fetchone()
+@pytest.mark.asyncio
+async def test_db_has_tables(db: AsyncConnectionPool) -> None:
+    async with db.connection() as conn:
+        cur = await conn.execute("SELECT to_regclass('market_data_daily')")
+        table = await cur.fetchone()
         assert table != (None,)

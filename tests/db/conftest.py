@@ -1,11 +1,13 @@
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from uuid import uuid4
 
 import psycopg
 import pytest
-from psycopg import sql
+import pytest_asyncio
+from psycopg import AsyncConnection, sql
 from psycopg.conninfo import make_conninfo
+from psycopg_pool import AsyncConnectionPool
 from testcontainers.community.postgres import PostgresContainer
 
 from horizon.db.migrate import migrate
@@ -48,6 +50,14 @@ def template_db(postgres_url: str) -> str:
 @pytest.fixture
 def migrated_db(postgres_url: str, template_db: str) -> str:
     return create_database(postgres_url, f"test_{uuid4().hex}", template=template_db)
+
+
+@pytest_asyncio.fixture
+async def db(migrated_db: str) -> AsyncIterator[AsyncConnectionPool]:
+    async with AsyncConnectionPool(
+        migrated_db, open=False, connection_class=AsyncConnection
+    ) as pool:
+        yield pool
 
 
 @pytest.fixture
