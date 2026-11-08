@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 from uuid import uuid4
 
 import psycopg
@@ -6,6 +7,22 @@ import pytest
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 from testcontainers.community.postgres import PostgresContainer
+
+from horizon.db.migrate import migrate
+
+MIGRATIONS = Path(__file__).parents[2] / "migrations"
+
+
+def create_database(postgres_url: str, name: str, template: str | None = None) -> str:
+    query = sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name))
+    if template is not None:
+        query += sql.SQL(" TEMPLATE {}").format(sql.Identifier(template))
+
+    # CREATE DATABASE can't run inside a transaction.
+    with psycopg.connect(postgres_url, autocommit=True) as conn:
+        conn.execute(query)
+
+    return make_conninfo(postgres_url, dbname=name)
 
 
 @pytest.fixture(scope="session")
@@ -21,12 +38,18 @@ def postgres_url() -> Iterator[str]:
         yield postgres.get_connection_url()
 
 
+@pytest.fixture(scope="session")
+def template_db(postgres_url: str) -> str:
+    name = "horizon_template"
+    migrate(create_database(postgres_url, name), MIGRATIONS)
+    return name
+
+
+@pytest.fixture
+def migrated_db(postgres_url: str, template_db: str) -> str:
+    return create_database(postgres_url, f"test_{uuid4().hex}", template=template_db)
+
+
 @pytest.fixture
 def empty_db(postgres_url: str) -> str:
-    name = f"test_{uuid4().hex}"
-
-    # CREATE DATABASE can't run inside a transaction.
-    with psycopg.connect(postgres_url, autocommit=True) as conn:
-        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-
-    return make_conninfo(postgres_url, dbname=name)
+    return create_database(postgres_url, f"test_{uuid4().hex}")
