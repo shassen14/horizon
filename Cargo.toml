@@ -1,12 +1,5 @@
 [workspace]
-members = [
-  "crates/horizon-db",
-  "crates/horizon-ingest",
-  "crates/horizon-quality",
-  "crates/horizon-features",
-  "crates/horizon-api",
-  "crates/horizon-scheduler",
-]
+members = ["crates/horizon-db"]
 resolver = "2"
 
 

@@ -1,7 +1,7 @@
 # Horizon infra stack — the stateful backing services.
 # TimescaleDB (app DB + MLflow backend), MLflow server, adminer.
-# Host it wherever durable storage lives. The Rust core that connects to these
-# runs separately (see ../core). Copy .env.example -> .env before bringing it up.
+# Host it wherever durable storage lives. Copy .env.example -> .env before
+# bringing it up.
 
 services:
   database:
