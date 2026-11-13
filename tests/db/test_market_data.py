@@ -4,20 +4,18 @@ from decimal import Decimal
 import pytest
 from psycopg_pool import AsyncConnectionPool
 
+from horizon.db.assets import active_assets, upsert_assets
 from horizon.db.market_data import insert_bars, latest_times
-from horizon.db.types import AssetId, DailyKey, NewBar, Source
+from horizon.db.types import AssetId, DailyKey, NewAsset, NewBar, Source
 
 
 async def create_asset(db: AsyncConnectionPool, symbol: str) -> AssetId:
     # Bars reference assets(id), so each test needs a real asset row first.
-    async with db.connection() as conn:
-        cur = await conn.execute(
-            "INSERT INTO assets (symbol) VALUES (%s) RETURNING id", (symbol,)
-        )
-        row = await cur.fetchone()
-
-    assert row is not None
-    return AssetId(row[0])
+    # upsert_assets returns a count, not ids, so look the id up by symbol.
+    await upsert_assets(
+        db, [NewAsset(symbol=symbol, name=None, exchange=None, asset_type="stock")]
+    )
+    return next(a.id for a in await active_assets(db) if a.symbol == symbol)
 
 
 def make_bar(asset_id: AssetId, date: datetime.date, vwap: Decimal | None) -> NewBar:
