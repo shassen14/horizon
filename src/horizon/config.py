@@ -17,3 +17,22 @@ def database_url() -> str:
         )
 
     return url
+
+
+# Returns (key_id, secret). Each key is checked separately so the error names
+# the one that is missing.
+def alpaca_keys() -> tuple[str, str]:
+    alpaca_key = os.environ.get("ALPACA_API_KEY")
+    alpaca_secret = os.environ.get("ALPACA_SECRET_KEY")
+
+    if not alpaca_key:
+        raise ConfigError(
+            "ALPACA_API_KEY is not set; export it or run with uv run --env-file .env"
+        )
+
+    if not alpaca_secret:
+        raise ConfigError(
+            "ALPACA_SECRET_KEY is not set; export it or run with uv run --env-file .env"
+        )
+
+    return alpaca_key, alpaca_secret
