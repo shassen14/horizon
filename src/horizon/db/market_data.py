@@ -5,6 +5,10 @@ from psycopg_pool import AsyncConnectionPool
 from horizon.db.types import AssetId, DailyKey, NewBar
 
 
+# The ingest cursor: each asset's newest stored bar. Assets with no bars yet are
+# absent from the result and need a full backfill. Because it is derived from the
+# data itself, a crashed run needs no cleanup; the next run resumes from what was
+# actually written.
 async def latest_times(
     pool: AsyncConnectionPool, asset_ids: list[AssetId]
 ) -> dict[AssetId, DailyKey]:
@@ -21,12 +25,18 @@ async def latest_times(
 
         rows = await cur.fetchall()
 
+    # psycopg returns timestamptz in the connection's TimeZone; DailyKey wants UTC.
     return {
         asset_id: DailyKey(max_time.astimezone(datetime.UTC))
         for asset_id, max_time in rows
     }
 
 
+# Inserts each column as one array and UNNESTs them back into rows, so the query
+# has 9 parameters whatever the batch size, far from Postgres's limit of 65,535
+# per statement. Raw bars never change once written, so ON CONFLICT DO NOTHING
+# makes reruns and retries safe. Returns the rows actually inserted, which
+# excludes duplicates.
 async def insert_bars(pool: AsyncConnectionPool, bars: list[NewBar]) -> int:
     if not bars:
         return 0
@@ -41,6 +51,9 @@ async def insert_bars(pool: AsyncConnectionPool, bars: list[NewBar]) -> int:
     vwaps = [bar.vwap for bar in bars]
     sources = [bar.source.value for bar in bars]
 
+    # The casts give Postgres each array's element type, which it can't infer
+    # from a bare parameter inside UNNEST. adjustment is always 'none' because
+    # prices are stored raw; the column records that for provenance.
     async with pool.connection() as conn:
         cur = await conn.execute(
             """

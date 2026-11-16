@@ -10,6 +10,8 @@ from horizon.db.migrate import migrate
 MIGRATIONS_DIR = Path(__file__).parents[2] / "migrations"
 
 
+# Returns the process exit code: 0 on success, 1 on a problem the user can fix.
+# Errors go to stderr so stdout stays clean for anything reading it.
 def run_migrate() -> int:
     try:
         url = database_url()
@@ -27,6 +29,8 @@ def run_migrate() -> int:
     return 0
 
 
+# argv is None when run as the `horizon` script, so argparse reads sys.argv[1:];
+# tests pass a list instead. On bad input argparse exits with code 2 by itself.
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="horizon")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -37,4 +41,6 @@ def main(argv: list[str] | None = None) -> int:
         case "migrate":
             return run_migrate()
 
+    # argparse rejects unknown commands, so this means a subcommand was registered
+    # above without a matching case.
     raise AssertionError(args.command)

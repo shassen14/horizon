@@ -4,6 +4,7 @@ from psycopg_pool import AsyncConnectionPool
 from horizon.db.types import Asset, AssetId, NewAsset
 
 
+# The current universe: the assets the daily job fetches.
 async def active_assets(pool: AsyncConnectionPool) -> list[Asset]:
     async with pool.connection() as conn:
         cur = await conn.execute(
@@ -35,7 +36,12 @@ async def upsert_assets(pool: AsyncConnectionPool, assets: list[NewAsset]) -> in
         return await _upsert_assets(conn, assets)
 
 
+# Replaces the universe in one transaction: deactivate everything, then
+# reactivate or insert the fresh list. Assets that drop out keep their rows and
+# history with is_active = false, and readers never see the half-done state.
 async def refresh_screener(pool: AsyncConnectionPool, fresh: list[NewAsset]) -> int:
+    # An empty list almost certainly means the screener failed, not that the
+    # market has no stocks; applying it would deactivate everything.
     if not fresh:
         raise ValueError("refusing to deactivate every asset: screener returned none")
 
@@ -45,6 +51,9 @@ async def refresh_screener(pool: AsyncConnectionPool, fresh: list[NewAsset]) -> 
         return await _upsert_assets(conn, fresh)
 
 
+# Takes a connection rather than the pool, so refresh_screener can run it inside
+# its own transaction. Matching on symbol keeps an existing asset's id, and with
+# it the asset's bars, while refreshing its metadata.
 async def _upsert_assets(conn: AsyncConnection, assets: list[NewAsset]) -> int:
     if not assets:
         return 0

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import psycopg
 
+# Any constant works, as long as every runner uses the same one.
 MIGRATION_LOCK_ID = 727274
 
 
@@ -21,6 +22,7 @@ def migrate(conninfo: str, migration_dir: Path) -> list[int]:
                 )
                      """)
 
+        # Zero-padded version prefixes make name order the apply order.
         paths = sorted(migration_dir.glob("*.up.sql"))
 
         if not paths:
@@ -42,6 +44,8 @@ def migrate(conninfo: str, migration_dir: Path) -> list[int]:
             sql = path.read_bytes()
             checksum = hashlib.sha256(sql).hexdigest()
 
+            # An applied file that was edited would leave databases holding
+            # different schemas under the same version, so refuse instead.
             if version in applied:
                 if applied[version] != checksum:
                     raise RuntimeError(

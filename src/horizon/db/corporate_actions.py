@@ -5,18 +5,21 @@ from psycopg_pool import AsyncConnectionPool
 from horizon.db.types import CorporateAction, Dividend, Split
 
 
+# An action is identified by (asset_id, ex_date, action_type), so refetching the
+# same history inserts nothing new. Returns the rows actually inserted.
 async def insert_actions(
     pool: AsyncConnectionPool, actions: list[CorporateAction]
 ) -> int:
     if not actions:
         return 0
 
-    # known
+    # Columns copied straight from each action.
     asset_ids = [action.asset_id for action in actions]
     ex_dates = [action.ex_date for action in actions]
     sources = [action.source.value for action in actions]
 
-    # derived
+    # Columns that depend on the kind: each kind fills its own column and leaves
+    # the other NULL, which the table's payload CHECK requires.
     action_types: list[str] = []
     split_ratios: list[Decimal | None] = []
     cash_amounts: list[Decimal | None] = []
